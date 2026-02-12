@@ -1,0 +1,42 @@
+{
+    "group_id": -1001661053273,
+    "alert_after_hours": 4,
+
+    "topic_pairs": [
+        {
+            "name": "Doomsday Funtime",
+            "pbp_topic_id": 25059,
+            "chat_topic_id": 21514
+        },
+        {
+            "name": "Riddleport",
+            "pbp_topic_id": 66154,
+            "chat_topic_id": 91008
+        },
+        {
+            "name": "Magni Watch",
+            "pbp_topic_id": 76799,
+            "chat_topic_id": 75826
+        },
+        {
+            "name": "Grand Explorers",
+            "pbp_topic_id": 51357,
+            "chat_topic_id": 47889
+        },
+        {
+            "name": "Kibwe",
+            "pbp_topic_id": 40585,
+            "chat_topic_id": 21528
+        },
+        {
+            "name": "Hopeful End-Times",
+            "pbp_topic_id": 52083,
+            "chat_topic_id": 50890
+        },
+        {
+            "name": "Metal City",
+            "pbp_topic_id": 107171,
+            "chat_topic_id": 104202
+        }
+    ]
+}

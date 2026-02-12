@@ -1,0 +1,27 @@
+name: PBP Inactivity Reminder
+
+on:
+  schedule:
+    # Run every hour to process messages and check for inactivity
+    - cron: '0 * * * *'
+  workflow_dispatch: # Allow manual trigger for testing
+
+jobs:
+  check-inactivity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Run inactivity checker
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
+          GIST_ID: ${{ secrets.GIST_ID }}
+        run: python scripts/checker.py
