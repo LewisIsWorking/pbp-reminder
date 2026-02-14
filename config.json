@@ -1,6 +1,6 @@
 {
     "group_id": -1001661053273,
-    "alert_after_hours": 4,
+    "alert_after_hours": 12,
     "gm_user_ids": [1698524397],
 
     "topic_pairs": [
