@@ -40,6 +40,15 @@ def fmt_date(dt: datetime) -> str:
     return dt.strftime("%Y-%m-%d")
 
 
+def html_escape(text: str) -> str:
+    """Escape HTML special characters for Telegram HTML parse mode."""
+    return (
+        text.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+
+
 def fmt_relative_date(now: datetime, then: datetime) -> str:
     """Format as relative + absolute, e.g. '5d ago (2026-02-10)'."""
     days_ago = int((now - then).total_seconds() / 86400)
@@ -152,7 +161,7 @@ def get_updates(offset: int) -> list:
             "offset": offset,
             "limit": 100,
             "timeout": 5,
-            "allowed_updates": json.dumps(["message"]),
+            "allowed_updates": json.dumps(["message", "callback_query"]),
         },
     )
 
@@ -186,6 +195,156 @@ def send_message(chat_id: int, thread_id: int, text: str) -> bool:
         return False
 
 
+def send_message_with_buttons(
+    chat_id: int, thread_id: int, text: str, buttons: list
+) -> int | None:
+    """Send a message with inline keyboard buttons. Returns message_id or None."""
+    keyboard = {"inline_keyboard": [buttons]}
+    resp = requests.post(
+        f"{TELEGRAM_API}/sendMessage",
+        json={
+            "chat_id": chat_id,
+            "message_thread_id": thread_id,
+            "text": text,
+            "disable_notification": False,
+            "reply_markup": keyboard,
+        },
+    )
+    if resp.status_code == 200 and resp.json().get("ok"):
+        return resp.json()["result"]["message_id"]
+    else:
+        print(f"Failed to send button message: {resp.text}")
+        return None
+
+
+def edit_message(chat_id: int, message_id: int, text: str, parse_mode: str = None) -> bool:
+    """Edit an existing message, removing inline keyboard."""
+    payload = {
+        "chat_id": chat_id,
+        "message_id": message_id,
+        "text": text,
+    }
+    if parse_mode:
+        payload["parse_mode"] = parse_mode
+    resp = requests.post(
+        f"{TELEGRAM_API}/editMessageText",
+        json=payload,
+    )
+    if resp.status_code == 200 and resp.json().get("ok"):
+        return True
+    else:
+        print(f"Failed to edit message: {resp.text}")
+        return False
+
+
+def answer_callback(callback_id: str, text: str = "") -> bool:
+    """Answer a callback query to dismiss the loading spinner."""
+    resp = requests.post(
+        f"{TELEGRAM_API}/answerCallbackQuery",
+        json={
+            "callback_query_id": callback_id,
+            "text": text,
+        },
+    )
+    return resp.status_code == 200
+
+
+# ------------------------------------------------------------------ #
+#  Boon choice callback handler
+# ------------------------------------------------------------------ #
+def process_boon_callback(cb: dict, config: dict, state: dict):
+    """Handle a player clicking a boon choice button."""
+    cb_id = cb.get("id", "")
+    cb_data = cb.get("data", "")
+    from_user = cb.get("from", {})
+    user_id = str(from_user.get("id", ""))
+    msg = cb.get("message", {})
+    chat_id = msg.get("chat", {}).get("id")
+    message_id = msg.get("message_id")
+
+    if not cb_data.startswith("boon:"):
+        return
+
+    # Parse: boon:<topic_id>:<choice_index>
+    parts = cb_data.split(":")
+    if len(parts) != 3:
+        answer_callback(cb_id, "Invalid choice.")
+        return
+
+    topic_id = parts[1]
+    try:
+        choice_idx = int(parts[2])
+    except ValueError:
+        answer_callback(cb_id, "Invalid choice.")
+        return
+
+    # Check pending choices
+    pending = state.get("pending_potw_boons", {}).get(topic_id)
+    if not pending:
+        answer_callback(cb_id, "This choice has expired.")
+        return
+
+    # Only the winner can choose
+    if user_id != pending["winner_user_id"]:
+        answer_callback(cb_id, "Only the Player of the Week can choose!")
+        return
+
+    if choice_idx < 0 or choice_idx >= len(pending["boons"]):
+        answer_callback(cb_id, "Invalid choice.")
+        return
+
+    chosen_boon = pending["boons"][choice_idx]
+
+    # Build message with chosen boon highlighted, others struck through
+    boon_lines = ""
+    for i, b in enumerate(pending["boons"]):
+        escaped = html_escape(b)
+        if i == choice_idx:
+            boon_lines += f"\n{i + 1}. {escaped} ✓\n"
+        else:
+            boon_lines += f"\n<s>{i + 1}. {escaped}</s>\n"
+
+    # Escape the base message too for HTML mode
+    base_escaped = html_escape(pending["base_message"])
+    new_text = f"{base_escaped}\n\nChosen boon:{boon_lines}"
+
+    edit_message(chat_id, message_id, new_text, parse_mode="HTML")
+    answer_callback(cb_id, f"You chose boon #{choice_idx + 1}!")
+
+    # Clean up pending state
+    del state["pending_potw_boons"][topic_id]
+    print(f"POTW boon chosen for topic {topic_id}: #{choice_idx + 1}")
+
+
+def expire_pending_boons(config: dict, state: dict):
+    """Auto-pick boon #1 if winner hasn't chosen within 48 hours."""
+    now = datetime.now(timezone.utc)
+    group_id = config["group_id"]
+    pending = state.get("pending_potw_boons", {})
+
+    for topic_id in list(pending.keys()):
+        entry = pending[topic_id]
+        posted_at = datetime.fromisoformat(entry["posted_at"])
+        hours_since = (now - posted_at).total_seconds() / 3600
+
+        if hours_since >= 48:
+            chosen_boon = entry["boons"][0]
+            boon_lines = ""
+            for i, b in enumerate(entry["boons"]):
+                escaped = html_escape(b)
+                if i == 0:
+                    boon_lines += f"\n{i + 1}. {escaped} ✓\n"
+                else:
+                    boon_lines += f"\n<s>{i + 1}. {escaped}</s>\n"
+
+            base_escaped = html_escape(entry["base_message"])
+            new_text = f"{base_escaped}\n\nBoon (auto-selected):{boon_lines}"
+
+            edit_message(group_id, entry["message_id"], new_text, parse_mode="HTML")
+            del pending[topic_id]
+            print(f"POTW boon auto-expired for topic {topic_id}, picked #1")
+
+
 # ------------------------------------------------------------------ #
 #  Process updates
 # ------------------------------------------------------------------ #
@@ -204,6 +363,13 @@ def process_updates(updates: list, config: dict, state: dict) -> int:
         new_offset = max(new_offset, update_id + 1)
 
         msg = update.get("message")
+        cb = update.get("callback_query")
+
+        # ---- Handle boon choice callbacks ----
+        if cb:
+            process_boon_callback(cb, config, state)
+            continue
+
         if not msg:
             continue
 
@@ -229,6 +395,12 @@ def process_updates(updates: list, config: dict, state: dict) -> int:
         username = from_user.get("username", "")
         campaign_name = pbp_topic_ids[thread_id_str]
         now_iso = datetime.now(timezone.utc).isoformat()
+        # Use the actual Telegram message timestamp for gap calculations
+        msg_date = msg.get("date")
+        if msg_date:
+            msg_time_iso = datetime.fromtimestamp(msg_date, tz=timezone.utc).isoformat()
+        else:
+            msg_time_iso = now_iso
         text = msg.get("text", "").strip().lower()
 
         # ---- Combat commands (GM only) ----
@@ -285,7 +457,7 @@ def process_updates(updates: list, config: dict, state: dict) -> int:
 
         # Update topic-level tracking (for 4-hour alerts)
         state["topics"][thread_id_str] = {
-            "last_message_time": now_iso,
+            "last_message_time": msg_time_iso,
             "last_user": user_name,
             "last_user_id": user_id,
             "campaign_name": campaign_name,
@@ -306,7 +478,7 @@ def process_updates(updates: list, config: dict, state: dict) -> int:
             state["post_timestamps"][thread_id_str] = {}
         if user_id not in state["post_timestamps"][thread_id_str]:
             state["post_timestamps"][thread_id_str][user_id] = []
-        state["post_timestamps"][thread_id_str][user_id].append(now_iso)
+        state["post_timestamps"][thread_id_str][user_id].append(msg_time_iso)
 
         # Update player-level tracking (skip GM)
         if user_id and user_id not in gm_ids:
@@ -319,7 +491,7 @@ def process_updates(updates: list, config: dict, state: dict) -> int:
                 "username": username,
                 "campaign_name": campaign_name,
                 "pbp_topic_id": thread_id_str,
-                "last_post_time": now_iso,
+                "last_post_time": msg_time_iso,
                 "last_warned_week": 0,
             }
 
@@ -636,19 +808,51 @@ def player_of_the_week(config: dict, state: dict):
         winner = min(candidates, key=lambda c: c["avg_gap_hours"])
         mention = f"@{winner['username']}" if winner["username"] else winner["first_name"]
         avg_gap_str = f"{winner['avg_gap_hours']:.1f}h"
-        boon = random.choice(boons)
 
-        message = (
-            f"Player of the Week for {name}: {mention}!\n\n"
+        # Date range for display
+        date_from = fmt_date(week_ago)
+        date_to = fmt_date(now)
+
+        # Pick 3 random boons
+        chosen_boons = random.sample(boons, min(3, len(boons)))
+
+        base_message = (
+            f"Player of the Week for {name}: {mention}!\n"
+            f"({date_from} to {date_to})\n\n"
             f"{winner['post_count']} posts this week with an average "
             f"gap of {avg_gap_str} between posts. The most consistent "
-            f"driver of the story.\n\n"
-            f"Your boon: {boon}"
+            f"driver of the story."
         )
 
+        boon_text = "\n\nChoose your boon:\n"
+        for i, b in enumerate(chosen_boons):
+            boon_text += f"\n{i + 1}. {b}\n"
+
+        full_text = base_message + boon_text
+
+        # Build inline keyboard buttons
+        buttons = []
+        for i in range(len(chosen_boons)):
+            buttons.append({
+                "text": f"Boon #{i + 1}",
+                "callback_data": f"boon:{pid}:{i}",
+            })
+
         print(f"POTW for {name}: {winner['first_name']} (avg gap {avg_gap_str})")
-        if send_message(group_id, chat_topic_id, message):
+        msg_id = send_message_with_buttons(group_id, chat_topic_id, full_text, buttons)
+        if msg_id:
             state["last_potw"][pid] = now.isoformat()
+
+            # Store pending choice
+            if "pending_potw_boons" not in state:
+                state["pending_potw_boons"] = {}
+            state["pending_potw_boons"][pid] = {
+                "message_id": msg_id,
+                "winner_user_id": winner["user_id"],
+                "boons": chosen_boons,
+                "base_message": base_message,
+                "posted_at": now.isoformat(),
+            }
 
 
 # ------------------------------------------------------------------ #
@@ -935,6 +1139,9 @@ def main():
 
     # Player of the Week (weekly)
     player_of_the_week(config, state)
+
+    # Expire unclaimed boon choices (48h)
+    expire_pending_boons(config, state)
 
     # Weekly pace report
     post_pace_report(config, state)
