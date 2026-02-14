@@ -34,6 +34,23 @@ STATE_FILENAME = "pbp_state.json"
 CONFIG_PATH = Path(__file__).parent.parent / "config.json"
 BOONS_PATH = Path(__file__).parent.parent / "boons.json"
 
+
+def fmt_date(dt: datetime) -> str:
+    """Format a datetime as YYYY-MM-DD."""
+    return dt.strftime("%Y-%m-%d")
+
+
+def fmt_relative_date(now: datetime, then: datetime) -> str:
+    """Format as relative + absolute, e.g. '5d ago (2026-02-10)'."""
+    days_ago = int((now - then).total_seconds() / 86400)
+    date_str = fmt_date(then)
+    if days_ago == 0:
+        return f"today ({date_str})"
+    elif days_ago == 1:
+        return f"yesterday ({date_str})"
+    else:
+        return f"{days_ago}d ago ({date_str})"
+
 PLAYER_WARN_WEEKS = [1, 2, 3]
 PLAYER_REMOVE_WEEKS = 4
 ROSTER_INTERVAL_DAYS = 3
@@ -359,9 +376,12 @@ def check_and_alert(config: dict, state: dict):
         count = state.get("message_counts", {}).get(pbp_id_str, {}).get(last_user_id, 0)
         count_str = f" ({count} total posts)" if count > 0 else ""
 
+        last_msg_time = datetime.fromisoformat(topic_state["last_message_time"])
+        last_date = fmt_date(last_msg_time)
+
         message = (
             f"No new posts in {name} PBP for {time_str}.\n"
-            f"Last post was from {last_user}{count_str}."
+            f"Last post was from {last_user}{count_str} on {last_date}."
         )
 
         print(f"Sending alert for {name}: {time_str} inactive")
@@ -399,13 +419,14 @@ def check_player_activity(config: dict, state: dict):
         campaign = player["campaign_name"]
         mention = f"@{username}" if username else first_name
         days_inactive = int((now - last_post).total_seconds() / 86400)
+        last_date = fmt_date(last_post)
 
         # 4+ weeks: remove
         if current_week >= PLAYER_REMOVE_WEEKS:
             if last_warned < PLAYER_REMOVE_WEEKS:
                 message = (
                     f"{mention} has not posted in {campaign} PBP for "
-                    f"{days_inactive} days. They are no longer tracked "
+                    f"{days_inactive} days (last: {last_date}). They are no longer tracked "
                     f"as an active player in this campaign."
                 )
                 print(f"Removing {first_name} from {campaign} ({days_inactive}d)")
@@ -419,17 +440,17 @@ def check_player_activity(config: dict, state: dict):
                 if week_mark == 1:
                     message = (
                         f"{mention} hasn't posted in {campaign} PBP "
-                        f"for {days_inactive} days. Everything okay?"
+                        f"for {days_inactive} days (last: {last_date}). Everything okay?"
                     )
                 elif week_mark == 2:
                     message = (
                         f"{mention} still no post in {campaign} PBP. "
-                        f"It's been {days_inactive} days now."
+                        f"It's been {days_inactive} days now (last: {last_date})."
                     )
                 else:
                     message = (
                         f"{mention} it's been {days_inactive} days without "
-                        f"a post in {campaign} PBP. 1 week until "
+                        f"a post in {campaign} PBP (last: {last_date}). 1 week until "
                         f"auto-removal from the campaign."
                     )
 
@@ -505,14 +526,7 @@ def post_roster_summary(config: dict, state: dict):
             display = player["first_name"]
             count = counts.get(uid, 0)
             last_post = datetime.fromisoformat(player["last_post_time"])
-            days_ago = int((now - last_post).total_seconds() / 86400)
-
-            if days_ago == 0:
-                time_str = "today"
-            elif days_ago == 1:
-                time_str = "yesterday"
-            else:
-                time_str = f"{days_ago}d ago"
+            time_str = fmt_relative_date(now, last_post)
 
             lines.append(f"  {display}: {count} posts (last: {time_str})")
 
@@ -700,9 +714,10 @@ def check_combat_turns(config: dict, state: dict):
             continue
 
         missing_str = ", ".join(missing)
+        phase_date = fmt_date(datetime.fromisoformat(combat["phase_started_at"]))
         message = (
             f"Round {round_num} - waiting on: {missing_str}\n"
-            f"({hours_int}h since players' phase started)"
+            f"({hours_int}h since players' phase started on {phase_date})"
         )
 
         print(f"Combat ping in {campaign_name}: waiting on {missing_str}")
@@ -807,15 +822,20 @@ def post_pace_report(config: dict, state: dict):
             trend = "STEADY"
             trend_icon = "➡️"
 
+        this_week_start = fmt_date(week_ago)
+        this_week_end = fmt_date(now)
+        last_week_start = fmt_date(two_weeks_ago)
+        last_week_end = fmt_date(week_ago)
+
         message = (
             f"{trend_icon} Weekly pace for {name}:\n"
             f"\n"
-            f"This week:\n"
+            f"This week ({this_week_start} to {this_week_end}):\n"
             f"  GM: {gm_this} posts ({gm_this / 7.0:.1f}/day)\n"
             f"  Players: {player_this} posts ({player_this / 7.0:.1f}/day)\n"
             f"  Total: {this_week} posts ({this_avg:.1f}/day)\n"
             f"\n"
-            f"Last week:\n"
+            f"Last week ({last_week_start} to {last_week_end}):\n"
             f"  GM: {gm_last} posts ({gm_last / 7.0:.1f}/day)\n"
             f"  Players: {player_last} posts ({player_last / 7.0:.1f}/day)\n"
             f"  Total: {last_week} posts ({last_avg:.1f}/day)\n"
