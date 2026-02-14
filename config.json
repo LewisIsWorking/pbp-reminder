@@ -13,7 +13,8 @@
         {
             "name": "Riddleport",
             "pbp_topic_id": 66154,
-            "chat_topic_id": 91008
+            "chat_topic_id": 91008,
+            "created": "2024-12-20"
         },
         {
             "name": "Magni Watch",
@@ -24,12 +25,14 @@
         {
             "name": "Grand Explorers",
             "pbp_topic_id": 51357,
-            "chat_topic_id": 47889
+            "chat_topic_id": 47889,
+            "created": "2024-08-20"
         },
         {
             "name": "Kibwe",
             "pbp_topic_id": 40585,
-            "chat_topic_id": 21528
+            "chat_topic_id": 21528,
+            "created": "2024-04-17"
         },
         {
             "name": "Hopeful End-Times",
@@ -40,7 +43,8 @@
         {
             "name": "Metal City",
             "pbp_topic_id": 107171,
-            "chat_topic_id": 104202
+            "chat_topic_id": 104202,
+            "created": "2025-09-04"
         }
     ]
 }
