@@ -735,9 +735,10 @@ def cleanup_timestamps(state: dict):
 #  Weekly pace report
 # ------------------------------------------------------------------ #
 def post_pace_report(config: dict, state: dict):
-    """Post weekly pace comparison: posts/day this week vs last week."""
+    """Post weekly pace comparison: posts/day this week vs last week, split GM/players."""
     group_id = config["group_id"]
     now = datetime.now(timezone.utc)
+    gm_ids = set(str(uid) for uid in config.get("gm_user_ids", []))
 
     if "last_pace" not in state:
         state["last_pace"] = {}
@@ -765,17 +766,28 @@ def post_pace_report(config: dict, state: dict):
         if not topic_timestamps:
             continue
 
-        # Count all posts this week and last week across all users
-        this_week = 0
-        last_week = 0
+        # Count posts split by GM vs players
+        gm_this = 0
+        gm_last = 0
+        player_this = 0
+        player_last = 0
         for uid, timestamps in topic_timestamps.items():
+            is_gm = uid in gm_ids
             for ts in timestamps:
                 post_time = datetime.fromisoformat(ts)
                 if post_time >= week_ago:
-                    this_week += 1
+                    if is_gm:
+                        gm_this += 1
+                    else:
+                        player_this += 1
                 elif post_time >= two_weeks_ago:
-                    last_week += 1
+                    if is_gm:
+                        gm_last += 1
+                    else:
+                        player_last += 1
 
+        this_week = gm_this + player_this
+        last_week = gm_last + player_last
         this_avg = this_week / 7.0
         last_avg = last_week / 7.0
 
@@ -797,8 +809,10 @@ def post_pace_report(config: dict, state: dict):
 
         message = (
             f"{trend_icon} Weekly pace for {name}:\n"
-            f"This week: {this_week} posts ({this_avg:.1f}/day)\n"
-            f"Last week: {last_week} posts ({last_avg:.1f}/day)\n"
+            f"GM: {gm_this} posts ({gm_this / 7.0:.1f}/day)\n"
+            f"Players: {player_this} posts ({player_this / 7.0:.1f}/day)\n"
+            f"Total: {this_week} posts ({this_avg:.1f}/day)\n"
+            f"Last week: {last_week} ({last_avg:.1f}/day)\n"
             f"Trend: {trend}"
         )
 
