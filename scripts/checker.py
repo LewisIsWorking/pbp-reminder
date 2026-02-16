@@ -49,11 +49,12 @@ def html_escape(text: str) -> str:
     )
 
 
-def display_name(first_name: str, username: str = "") -> str:
-    """Format a player name as 'FirstName (@username)' or just 'FirstName'."""
+def display_name(first_name: str, username: str = "", last_name: str = "") -> str:
+    """Format a player name as 'First Last (@username)' or 'First Last' or 'First'."""
+    full = f"{first_name} {last_name}".strip() if last_name else first_name
     if username:
-        return f"{first_name} (@{username})"
-    return first_name
+        return f"{full} (@{username})"
+    return full
 
 
 def posts_str(n: int) -> str:
@@ -405,6 +406,7 @@ def process_updates(updates: list, config: dict, state: dict) -> int:
 
         user_id = str(from_user.get("id", ""))
         user_name = from_user.get("first_name", "Someone")
+        user_last_name = from_user.get("last_name", "")
         username = from_user.get("username", "")
         campaign_name = pbp_topic_ids[thread_id_str]
         now_iso = datetime.now(timezone.utc).isoformat()
@@ -501,6 +503,7 @@ def process_updates(updates: list, config: dict, state: dict) -> int:
             state["players"][player_key] = {
                 "user_id": user_id,
                 "first_name": user_name,
+                "last_name": user_last_name,
                 "username": username,
                 "campaign_name": campaign_name,
                 "pbp_topic_id": thread_id_str,
@@ -600,9 +603,10 @@ def check_player_activity(config: dict, state: dict):
         last_warned = player.get("last_warned_week", 0)
 
         first_name = player["first_name"]
+        last_name = player.get("last_name", "")
         username = player.get("username", "")
         campaign = player["campaign_name"]
-        mention = display_name(first_name, username)
+        mention = display_name(first_name, username, last_name)
         days_inactive = int((now - last_post).total_seconds() / 86400)
         last_date = fmt_date(last_post)
 
@@ -708,7 +712,7 @@ def post_roster_summary(config: dict, state: dict):
         lines = []
         for player in sorted(players, key=lambda p: counts.get(p["user_id"], 0), reverse=True):
             uid = player["user_id"]
-            display = display_name(player["first_name"], player.get("username", ""))
+            display = display_name(player["first_name"], player.get("username", ""), player.get("last_name", ""))
             count = counts.get(uid, 0)
             last_post = datetime.fromisoformat(player["last_post_time"])
             time_str = fmt_relative_date(now, last_post)
@@ -803,11 +807,13 @@ def player_of_the_week(config: dict, state: dict):
             player_key = f"{pid}:{user_id}"
             player = state.get("players", {}).get(player_key, {})
             first_name = player.get("first_name", "Unknown")
+            last_name = player.get("last_name", "")
             username = player.get("username", "")
 
             candidates.append({
                 "user_id": user_id,
                 "first_name": first_name,
+                "last_name": last_name,
                 "username": username,
                 "avg_gap_hours": avg_gap,
                 "post_count": len(week_posts),
@@ -819,7 +825,7 @@ def player_of_the_week(config: dict, state: dict):
 
         # Winner = smallest average gap
         winner = min(candidates, key=lambda c: c["avg_gap_hours"])
-        mention = display_name(winner["first_name"], winner["username"])
+        mention = display_name(winner["first_name"], winner["username"], winner["last_name"])
         avg_gap_str = f"{winner['avg_gap_hours']:.1f}h"
 
         # Date range for display
@@ -916,7 +922,7 @@ def check_combat_turns(config: dict, state: dict):
                 continue
 
             uname = player.get("username", "")
-            missing.append(display_name(player["first_name"], uname))
+            missing.append(display_name(player["first_name"], uname, player.get("last_name", "")))
 
         if not missing:
             continue
@@ -1158,12 +1164,14 @@ def post_campaign_leaderboard(config: dict, state: dict):
         posts_prev_3d = 0
         player_post_counts = {}  # user_id -> {name, username, count}
         all_post_times_7d = []
+        player_post_times_7d = []
 
         for uid, timestamps in topic_timestamps.items():
             is_gm = uid in gm_ids
             player_key = f"{pid}:{uid}"
             player_info = state.get("players", {}).get(player_key, {})
             p_name = player_info.get("first_name", "Unknown")
+            p_last_name = player_info.get("last_name", "")
             p_username = player_info.get("username", "")
 
             for ts in timestamps:
@@ -1176,9 +1184,11 @@ def post_campaign_leaderboard(config: dict, state: dict):
                         gm_7d += 1
                     else:
                         player_7d += 1
+                        player_post_times_7d.append(post_time)
                         if uid not in player_post_counts:
                             player_post_counts[uid] = {
                                 "name": p_name,
+                                "last_name": p_last_name,
                                 "username": p_username,
                                 "count": 0,
                             }
@@ -1202,6 +1212,18 @@ def post_campaign_leaderboard(config: dict, state: dict):
                 gaps.append(gap_h)
             avg_gap = sum(gaps) / len(gaps)
             avg_gap_str = f"{avg_gap:.1f}h"
+
+        # Player-only average gap
+        player_avg_gap = None
+        player_avg_gap_str = "N/A"
+        if len(player_post_times_7d) >= 2:
+            player_post_times_7d.sort()
+            p_gaps = []
+            for i in range(1, len(player_post_times_7d)):
+                gap_h = (player_post_times_7d[i] - player_post_times_7d[i - 1]).total_seconds() / 3600
+                p_gaps.append(gap_h)
+            player_avg_gap = sum(p_gaps) / len(p_gaps)
+            player_avg_gap_str = f"{player_avg_gap:.1f}h"
 
         # Days since last post
         last_post_time = None
@@ -1252,6 +1274,8 @@ def post_campaign_leaderboard(config: dict, state: dict):
             "gm_7d": gm_7d,
             "trend_icon": trend_icon,
             "avg_gap_str": avg_gap_str,
+            "player_avg_gap": player_avg_gap,
+            "player_avg_gap_str": player_avg_gap_str,
             "last_post_str": last_post_str,
             "days_since_last": days_since_last,
             "top_players": top_players,
@@ -1261,10 +1285,10 @@ def post_campaign_leaderboard(config: dict, state: dict):
         print("No campaign data for leaderboard")
         return
 
-    # Sort by total 7d posts descending
-    campaign_stats.sort(key=lambda c: c["total_7d"], reverse=True)
+    # Sort by player posts descending
+    campaign_stats.sort(key=lambda c: c["player_7d"], reverse=True)
 
-    # Split into active and dead
+    # Split into active and dead (based on any posts including GM)
     active = [c for c in campaign_stats if c["total_7d"] > 0]
     dead = [c for c in campaign_stats if c["total_7d"] == 0]
 
@@ -1285,13 +1309,24 @@ def post_campaign_leaderboard(config: dict, state: dict):
 
         for j, p in enumerate(c["top_players"]):
             medal = player_medals[j] if j < 3 else f"   {j + 1}."
-            display = display_name(p["name"], p.get("username", ""))
+            display = display_name(p["name"], p.get("username", ""), p.get("last_name", ""))
             lines.append(f"   {medal} {display}: {posts_str(p['count'])}")
 
     if dead:
         lines.append("\n⚠️ Dead campaigns (0 posts in 7 days):")
         for c in dead:
             lines.append(f"   💀 {c['name']} (last post: {c['last_post_str']})")
+
+    # Player-only avg gap ranking
+    gap_ranked = [
+        c for c in campaign_stats if c["player_avg_gap"] is not None
+    ]
+    if gap_ranked:
+        gap_ranked.sort(key=lambda c: c["player_avg_gap"])
+        lines.append("\n⏱ Fastest player response gaps:")
+        for i, c in enumerate(gap_ranked):
+            icon = rank_icons[i] if i < 3 else f"{i + 1}."
+            lines.append(f"   {icon} {c['name']}: {c['player_avg_gap_str']}")
 
     message = "\n".join(lines)
 
