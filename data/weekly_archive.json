@@ -1,1 +1,98 @@
-{}
+{
+  "25059:2026-W07": {
+    "campaign": "Doomsday Funtime",
+    "week": "2026-W07",
+    "gm_posts": 10,
+    "player_posts": 3,
+    "total_posts": 13,
+    "player_avg_gap_h": 8.4,
+    "active_players": 4,
+    "top_players": {
+      "Kaer'maga when? (@Nemesiux)": 1,
+      "Lhiet (@Llhiet)": 1,
+      "Moss (@Mossssssssssssssssssssssssss)": 1
+    }
+  },
+  "66154:2026-W07": {
+    "campaign": "Riddleport",
+    "week": "2026-W07",
+    "gm_posts": 12,
+    "player_posts": 11,
+    "total_posts": 23,
+    "player_avg_gap_h": 4.3,
+    "active_players": 5,
+    "top_players": {
+      "Lunnes (@LuNneS_B)": 7,
+      "Aiden101 (@Aiiden101)": 3,
+      "Capricious (@CapriciousC)": 1
+    }
+  },
+  "76799:2026-W07": {
+    "campaign": "Magni Watch",
+    "week": "2026-W07",
+    "gm_posts": 6,
+    "player_posts": 4,
+    "total_posts": 10,
+    "player_avg_gap_h": 0.2,
+    "active_players": 3,
+    "top_players": {
+      "Cannon (@ArtyArtillery)": 2,
+      "Ryo (@RyoYamakawa)": 1,
+      "Chase (@ChaseDarkthorne)": 1
+    }
+  },
+  "51357:2026-W07": {
+    "campaign": "Grand Explorers",
+    "week": "2026-W07",
+    "gm_posts": 4,
+    "player_posts": 7,
+    "total_posts": 11,
+    "player_avg_gap_h": 6.3,
+    "active_players": 4,
+    "top_players": {
+      "Link (@Linksanelf2006)": 4,
+      "Cannon (@ArtyArtillery)": 1,
+      "Ryo (@RyoYamakawa)": 1,
+      "Anthony (@MrNegetZ)": 1
+    }
+  },
+  "40585:2026-W07": {
+    "campaign": "Kibwe",
+    "week": "2026-W07",
+    "gm_posts": 10,
+    "player_posts": 0,
+    "total_posts": 10,
+    "player_avg_gap_h": null,
+    "active_players": 1,
+    "top_players": {}
+  },
+  "52083:2026-W07": {
+    "campaign": "Hopeful End-Times",
+    "week": "2026-W07",
+    "gm_posts": 34,
+    "player_posts": 7,
+    "total_posts": 41,
+    "player_avg_gap_h": 7.9,
+    "active_players": 4,
+    "top_players": {
+      "Dima (@Dmitrilak)": 5,
+      "Bruce (@Ravnos1)": 1,
+      "Ryo (@RyoYamakawa)": 1
+    }
+  },
+  "107171:2026-W07": {
+    "campaign": "Metal City",
+    "week": "2026-W07",
+    "gm_posts": 16,
+    "player_posts": 11,
+    "total_posts": 27,
+    "player_avg_gap_h": 4.0,
+    "active_players": 4,
+    "top_players": {
+      "Bruce (@Ravnos1)": 4,
+      "Link (@Linksanelf2006)": 3,
+      "Laetheron (@StorybookRhizome)": 3,
+      "Aiden101 (@Aiiden101)": 1
+    }
+  }
+}
