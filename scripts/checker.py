@@ -49,6 +49,18 @@ def html_escape(text: str) -> str:
     )
 
 
+def display_name(first_name: str, username: str = "") -> str:
+    """Format a player name as 'FirstName (@username)' or just 'FirstName'."""
+    if username:
+        return f"{first_name} (@{username})"
+    return first_name
+
+
+def posts_str(n: int) -> str:
+    """Return '1 post' or 'N posts'."""
+    return f"{n} post" if n == 1 else f"{n} posts"
+
+
 def fmt_relative_date(now: datetime, then: datetime) -> str:
     """Format as relative + absolute, e.g. '5d ago (2026-02-10)'."""
     days_ago = int((now - then).total_seconds() / 86400)
@@ -590,7 +602,7 @@ def check_player_activity(config: dict, state: dict):
         first_name = player["first_name"]
         username = player.get("username", "")
         campaign = player["campaign_name"]
-        mention = f"@{username}" if username else first_name
+        mention = display_name(first_name, username)
         days_inactive = int((now - last_post).total_seconds() / 86400)
         last_date = fmt_date(last_post)
 
@@ -696,18 +708,18 @@ def post_roster_summary(config: dict, state: dict):
         lines = []
         for player in sorted(players, key=lambda p: counts.get(p["user_id"], 0), reverse=True):
             uid = player["user_id"]
-            display = player["first_name"]
+            display = display_name(player["first_name"], player.get("username", ""))
             count = counts.get(uid, 0)
             last_post = datetime.fromisoformat(player["last_post_time"])
             time_str = fmt_relative_date(now, last_post)
 
-            lines.append(f"  {display}: {count} posts (last: {time_str})")
+            lines.append(f"  {display}: {posts_str(count)} (last: {time_str})")
 
         # Add GM stats if present
         for gm_id in gm_ids:
             gm_count = counts.get(gm_id, 0)
             if gm_count > 0:
-                lines.insert(0, f"  GM: {gm_count} posts")
+                lines.insert(0, f"  GM: {posts_str(gm_count)}")
 
         if not lines:
             continue
@@ -807,7 +819,7 @@ def player_of_the_week(config: dict, state: dict):
 
         # Winner = smallest average gap
         winner = min(candidates, key=lambda c: c["avg_gap_hours"])
-        mention = f"@{winner['username']}" if winner["username"] else winner["first_name"]
+        mention = display_name(winner["first_name"], winner["username"])
         avg_gap_str = f"{winner['avg_gap_hours']:.1f}h"
 
         # Date range for display
@@ -820,7 +832,7 @@ def player_of_the_week(config: dict, state: dict):
         base_message = (
             f"Player of the Week for {name}: {mention}!\n"
             f"({date_from} to {date_to})\n\n"
-            f"{winner['post_count']} posts this week with an average "
+            f"{posts_str(winner['post_count'])} this week with an average "
             f"gap of {avg_gap_str} between posts. The most consistent "
             f"driver of the story."
         )
@@ -904,8 +916,7 @@ def check_combat_turns(config: dict, state: dict):
                 continue
 
             uname = player.get("username", "")
-            mention = f"@{uname}" if uname else player["first_name"]
-            missing.append(mention)
+            missing.append(display_name(player["first_name"], uname))
 
         if not missing:
             continue
@@ -1268,14 +1279,14 @@ def post_campaign_leaderboard(config: dict, state: dict):
         rank = rank_icons[i] if i < 3 else f"{i + 1}."
         lines.append(
             f"\n{rank} {c['name']} {c['trend_icon']}\n"
-            f"   {c['total_7d']} posts ({c['player_7d']} player, {c['gm_7d']} GM)\n"
+            f"   {posts_str(c['total_7d'])} ({c['player_7d']} player, {c['gm_7d']} GM)\n"
             f"   Avg gap: {c['avg_gap_str']} | Last post: {c['last_post_str']}"
         )
 
         for j, p in enumerate(c["top_players"]):
             medal = player_medals[j] if j < 3 else f"   {j + 1}."
-            display = p["name"]
-            lines.append(f"   {medal} {display}: {p['count']} posts")
+            display = display_name(p["name"], p.get("username", ""))
+            lines.append(f"   {medal} {display}: {posts_str(p['count'])}")
 
     if dead:
         lines.append("\n⚠️ Dead campaigns (0 posts in 7 days):")
