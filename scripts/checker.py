@@ -33,6 +33,7 @@ STATE_FILENAME = "pbp_state.json"
 
 CONFIG_PATH = Path(__file__).parent.parent / "config.json"
 BOONS_PATH = Path(__file__).parent.parent / "boons.json"
+ARCHIVE_PATH = Path(__file__).parent.parent / "data" / "weekly_archive.json"
 
 
 def fmt_date(dt: datetime) -> str:
@@ -953,11 +954,11 @@ def check_combat_turns(config: dict, state: dict):
 #  Weekly data archive (preserves long-term trends)
 # ------------------------------------------------------------------ #
 def archive_weekly_data(config: dict, state: dict):
-    """Archive weekly summaries before timestamps are pruned.
+    """Archive weekly summaries to a JSON file in the repo.
 
     Stores compact per-campaign stats keyed by ISO week (e.g. '2026-W07').
-    This grows slowly (~200 bytes per campaign per week) and preserves
-    long-term trend data indefinitely.
+    The file is committed back to the repo by the GitHub Actions workflow,
+    giving full git history and no gist size concerns.
     """
     now = datetime.now(timezone.utc)
     gm_ids = set(str(uid) for uid in config.get("gm_user_ids", []))
@@ -967,14 +968,17 @@ def archive_weekly_data(config: dict, state: dict):
     year, week_num, _ = last_week.isocalendar()
     week_key = f"{year}-W{week_num:02d}"
 
-    if "weekly_archive" not in state:
-        state["weekly_archive"] = {}
-
-    # Check if we already archived this week
-    if "last_archived_week" not in state:
-        state["last_archived_week"] = None
-    if state["last_archived_week"] == week_key:
+    # Check if we already archived this week (tracked in gist state)
+    if state.get("last_archived_week") == week_key:
         return
+
+    # Load existing archive from repo file
+    ARCHIVE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with open(ARCHIVE_PATH) as f:
+            archive = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        archive = {}
 
     week_start = now - timedelta(days=now.weekday() + 7)  # Start of last week (Monday)
     week_end = week_start + timedelta(days=7)
@@ -1026,7 +1030,7 @@ def archive_weekly_data(config: dict, state: dict):
         ])
 
         archive_key = f"{pid}:{week_key}"
-        state["weekly_archive"][archive_key] = {
+        archive[archive_key] = {
             "campaign": name,
             "week": week_key,
             "gm_posts": gm_posts,
@@ -1039,8 +1043,12 @@ def archive_weekly_data(config: dict, state: dict):
             )[:5]),
         }
 
+    # Write archive to repo file
+    with open(ARCHIVE_PATH, "w") as f:
+        json.dump(archive, f, indent=2)
+
     state["last_archived_week"] = week_key
-    print(f"Archived weekly data for {week_key}")
+    print(f"Archived weekly data for {week_key} to {ARCHIVE_PATH}")
 
 
 # ------------------------------------------------------------------ #
