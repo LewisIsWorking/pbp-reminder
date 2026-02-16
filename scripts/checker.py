@@ -81,6 +81,8 @@ POTW_MIN_POSTS = 5
 PACE_INTERVAL_DAYS = 7
 LEADERBOARD_INTERVAL_DAYS = 3
 COMBAT_PING_HOURS = 4
+RECRUITMENT_INTERVAL_DAYS = 14
+REQUIRED_PLAYERS = 6
 
 
 def load_config() -> dict:
@@ -948,6 +950,100 @@ def check_combat_turns(config: dict, state: dict):
 
 
 # ------------------------------------------------------------------ #
+#  Weekly data archive (preserves long-term trends)
+# ------------------------------------------------------------------ #
+def archive_weekly_data(config: dict, state: dict):
+    """Archive weekly summaries before timestamps are pruned.
+
+    Stores compact per-campaign stats keyed by ISO week (e.g. '2026-W07').
+    This grows slowly (~200 bytes per campaign per week) and preserves
+    long-term trend data indefinitely.
+    """
+    now = datetime.now(timezone.utc)
+    gm_ids = set(str(uid) for uid in config.get("gm_user_ids", []))
+
+    # Use last week's ISO week number (since current week is still in progress)
+    last_week = now - timedelta(days=7)
+    year, week_num, _ = last_week.isocalendar()
+    week_key = f"{year}-W{week_num:02d}"
+
+    if "weekly_archive" not in state:
+        state["weekly_archive"] = {}
+
+    # Check if we already archived this week
+    if "last_archived_week" not in state:
+        state["last_archived_week"] = None
+    if state["last_archived_week"] == week_key:
+        return
+
+    week_start = now - timedelta(days=now.weekday() + 7)  # Start of last week (Monday)
+    week_end = week_start + timedelta(days=7)
+
+    for pair in config["topic_pairs"]:
+        pid = str(pair["pbp_topic_id"])
+        name = pair["name"]
+        topic_timestamps = state.get("post_timestamps", {}).get(pid, {})
+
+        gm_posts = 0
+        player_posts = 0
+        player_counts = {}
+        player_post_times = []
+
+        for uid, timestamps in topic_timestamps.items():
+            is_gm = uid in gm_ids
+            player_key = f"{pid}:{uid}"
+            player_info = state.get("players", {}).get(player_key, {})
+
+            for ts in timestamps:
+                post_time = datetime.fromisoformat(ts)
+                if week_start <= post_time < week_end:
+                    if is_gm:
+                        gm_posts += 1
+                    else:
+                        player_posts += 1
+                        player_post_times.append(post_time)
+                        p_name = display_name(
+                            player_info.get("first_name", "Unknown"),
+                            player_info.get("username", ""),
+                            player_info.get("last_name", ""),
+                        )
+                        player_counts[p_name] = player_counts.get(p_name, 0) + 1
+
+        # Calculate player avg gap
+        player_avg_gap = None
+        if len(player_post_times) >= 2:
+            player_post_times.sort()
+            gaps = []
+            for i in range(1, len(player_post_times)):
+                gap_h = (player_post_times[i] - player_post_times[i - 1]).total_seconds() / 3600
+                gaps.append(gap_h)
+            player_avg_gap = round(sum(gaps) / len(gaps), 1)
+
+        # Count active players
+        active_players = len([
+            pk for pk, p in state.get("players", {}).items()
+            if p.get("pbp_topic_id") == pid
+        ])
+
+        archive_key = f"{pid}:{week_key}"
+        state["weekly_archive"][archive_key] = {
+            "campaign": name,
+            "week": week_key,
+            "gm_posts": gm_posts,
+            "player_posts": player_posts,
+            "total_posts": gm_posts + player_posts,
+            "player_avg_gap_h": player_avg_gap,
+            "active_players": active_players,
+            "top_players": dict(sorted(
+                player_counts.items(), key=lambda x: x[1], reverse=True
+            )[:5]),
+        }
+
+    state["last_archived_week"] = week_key
+    print(f"Archived weekly data for {week_key}")
+
+
+# ------------------------------------------------------------------ #
 #  Timestamp cleanup (keep only last 15 days)
 # ------------------------------------------------------------------ #
 def cleanup_timestamps(state: dict):
@@ -1336,6 +1432,66 @@ def post_campaign_leaderboard(config: dict, state: dict):
 
 
 # ------------------------------------------------------------------ #
+#  Recruitment check (campaigns needing players)
+# ------------------------------------------------------------------ #
+def check_recruitment_needs(config: dict, state: dict):
+    """If a campaign has fewer than REQUIRED_PLAYERS, post a notice."""
+    group_id = config["group_id"]
+    now = datetime.now(timezone.utc)
+
+    if "last_recruitment_check" not in state:
+        state["last_recruitment_check"] = {}
+
+    for pair in config["topic_pairs"]:
+        pid = str(pair["pbp_topic_id"])
+        chat_topic_id = pair["chat_topic_id"]
+        name = pair["name"]
+
+        # Check interval
+        last_check_str = state["last_recruitment_check"].get(pid)
+        if last_check_str:
+            days_since = (now - datetime.fromisoformat(last_check_str)).total_seconds() / 86400
+            if days_since < RECRUITMENT_INTERVAL_DAYS:
+                continue
+
+        # Count active players (excluding GM)
+        active = []
+        for player_key, player in state.get("players", {}).items():
+            if player.get("pbp_topic_id") == pid:
+                p_display = display_name(
+                    player["first_name"],
+                    player.get("username", ""),
+                    player.get("last_name", ""),
+                )
+                active.append(p_display)
+
+        player_count = len(active)
+        needed = REQUIRED_PLAYERS - player_count
+
+        if needed <= 0:
+            # Full roster, reset timer
+            state["last_recruitment_check"][pid] = now.isoformat()
+            continue
+
+        # Build roster display
+        if active:
+            roster_lines = "\n".join(f"  - {p}" for p in active)
+            roster_section = f"Current roster ({player_count}/{REQUIRED_PLAYERS}):\n{roster_lines}"
+        else:
+            roster_section = f"Current roster: 0/{REQUIRED_PLAYERS} (no active players)"
+
+        message = (
+            f"📢 {name} needs {needed} more player{'s' if needed != 1 else ''}!\n\n"
+            f"{roster_section}\n\n"
+            f"Know anyone who'd like to join? Send them to the recruitment topic!"
+        )
+
+        print(f"Recruitment notice for {name}: {player_count}/{REQUIRED_PLAYERS}")
+        if send_message(group_id, chat_topic_id, message):
+            state["last_recruitment_check"][pid] = now.isoformat()
+
+
+# ------------------------------------------------------------------ #
 #  Main
 # ------------------------------------------------------------------ #
 def main():
@@ -1384,6 +1540,12 @@ def main():
 
     # Campaign leaderboard (every 3 days, ISSUES topic)
     post_campaign_leaderboard(config, state)
+
+    # Recruitment notices (every 2 weeks, campaigns under 6 players)
+    check_recruitment_needs(config, state)
+
+    # Archive weekly summaries (before pruning timestamps)
+    archive_weekly_data(config, state)
 
     # Prune old timestamps
     cleanup_timestamps(state)
