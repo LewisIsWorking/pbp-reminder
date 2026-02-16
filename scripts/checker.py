@@ -66,6 +66,7 @@ ROSTER_INTERVAL_DAYS = 3
 POTW_INTERVAL_DAYS = 7
 POTW_MIN_POSTS = 5
 PACE_INTERVAL_DAYS = 7
+LEADERBOARD_INTERVAL_DAYS = 3
 COMBAT_PING_HOURS = 4
 
 
@@ -1106,6 +1107,189 @@ def check_anniversaries(config: dict, state: dict):
 
 
 # ------------------------------------------------------------------ #
+#  Campaign Leaderboard (cross-campaign dashboard)
+# ------------------------------------------------------------------ #
+def post_campaign_leaderboard(config: dict, state: dict):
+    """Post a cross-campaign activity leaderboard to the ISSUES topic."""
+    group_id = config["group_id"]
+    leaderboard_topic = config.get("leaderboard_topic_id")
+    if not leaderboard_topic:
+        return
+
+    now = datetime.now(timezone.utc)
+    gm_ids = set(str(uid) for uid in config.get("gm_user_ids", []))
+
+    if "last_leaderboard" not in state:
+        state["last_leaderboard"] = None
+
+    # Check interval
+    last_lb_str = state["last_leaderboard"]
+    if last_lb_str:
+        days_since = (now - datetime.fromisoformat(last_lb_str)).total_seconds() / 86400
+        if days_since < LEADERBOARD_INTERVAL_DAYS:
+            return
+
+    seven_days_ago = now - timedelta(days=7)
+    three_days_ago = now - timedelta(days=3)
+    six_days_ago = now - timedelta(days=6)  # previous 3-day window
+
+    campaign_stats = []
+
+    for pair in config["topic_pairs"]:
+        pid = str(pair["pbp_topic_id"])
+        name = pair["name"]
+        topic_timestamps = state.get("post_timestamps", {}).get(pid, {})
+
+        # Gather all posts in windows
+        gm_7d = 0
+        player_7d = 0
+        posts_recent_3d = 0
+        posts_prev_3d = 0
+        player_post_counts = {}  # user_id -> {name, username, count}
+        all_post_times_7d = []
+
+        for uid, timestamps in topic_timestamps.items():
+            is_gm = uid in gm_ids
+            player_key = f"{pid}:{uid}"
+            player_info = state.get("players", {}).get(player_key, {})
+            p_name = player_info.get("first_name", "Unknown")
+            p_username = player_info.get("username", "")
+
+            for ts in timestamps:
+                post_time = datetime.fromisoformat(ts)
+
+                # 7-day window
+                if post_time >= seven_days_ago:
+                    all_post_times_7d.append(post_time)
+                    if is_gm:
+                        gm_7d += 1
+                    else:
+                        player_7d += 1
+                        if uid not in player_post_counts:
+                            player_post_counts[uid] = {
+                                "name": p_name,
+                                "username": p_username,
+                                "count": 0,
+                            }
+                        player_post_counts[uid]["count"] += 1
+
+                # 3-day trend windows
+                if post_time >= three_days_ago:
+                    posts_recent_3d += 1
+                elif post_time >= six_days_ago:
+                    posts_prev_3d += 1
+
+        total_7d = gm_7d + player_7d
+
+        # Average response gap (all posts sorted chronologically)
+        avg_gap_str = "N/A"
+        if len(all_post_times_7d) >= 2:
+            all_post_times_7d.sort()
+            gaps = []
+            for i in range(1, len(all_post_times_7d)):
+                gap_h = (all_post_times_7d[i] - all_post_times_7d[i - 1]).total_seconds() / 3600
+                gaps.append(gap_h)
+            avg_gap = sum(gaps) / len(gaps)
+            avg_gap_str = f"{avg_gap:.1f}h"
+
+        # Days since last post
+        last_post_time = None
+        for uid, timestamps in topic_timestamps.items():
+            for ts in timestamps:
+                pt = datetime.fromisoformat(ts)
+                if last_post_time is None or pt > last_post_time:
+                    last_post_time = pt
+
+        if last_post_time:
+            days_since_last = (now - last_post_time).total_seconds() / 86400
+            if days_since_last < 0.04:  # ~1 hour
+                last_post_str = "today"
+            elif days_since_last < 1:
+                hours = int(days_since_last * 24)
+                last_post_str = f"{hours}h ago"
+            elif days_since_last < 2:
+                last_post_str = "yesterday"
+            else:
+                last_post_str = f"{int(days_since_last)}d ago"
+        else:
+            days_since_last = 999
+            last_post_str = "never"
+
+        # 3-day trend
+        if posts_prev_3d == 0 and posts_recent_3d == 0:
+            trend_icon = "💤"
+        elif posts_prev_3d == 0:
+            trend_icon = "🆕"
+        elif posts_recent_3d > posts_prev_3d * 1.15:
+            trend_icon = "📈"
+        elif posts_recent_3d < posts_prev_3d * 0.85:
+            trend_icon = "📉"
+        else:
+            trend_icon = "➡️"
+
+        # Top 3 players by post count
+        top_players = sorted(
+            player_post_counts.values(),
+            key=lambda p: p["count"],
+            reverse=True,
+        )[:3]
+
+        campaign_stats.append({
+            "name": name,
+            "total_7d": total_7d,
+            "player_7d": player_7d,
+            "gm_7d": gm_7d,
+            "trend_icon": trend_icon,
+            "avg_gap_str": avg_gap_str,
+            "last_post_str": last_post_str,
+            "days_since_last": days_since_last,
+            "top_players": top_players,
+        })
+
+    if not campaign_stats:
+        print("No campaign data for leaderboard")
+        return
+
+    # Sort by total 7d posts descending
+    campaign_stats.sort(key=lambda c: c["total_7d"], reverse=True)
+
+    # Split into active and dead
+    active = [c for c in campaign_stats if c["total_7d"] > 0]
+    dead = [c for c in campaign_stats if c["total_7d"] == 0]
+
+    date_from = fmt_date(seven_days_ago)
+    date_to = fmt_date(now)
+    rank_icons = ["🥇", "🥈", "🥉"]
+    player_medals = ["🥇", "🥈", "🥉"]
+
+    lines = [f"📊 Campaign Leaderboard ({date_from} to {date_to})\n"]
+
+    for i, c in enumerate(active):
+        rank = rank_icons[i] if i < 3 else f"{i + 1}."
+        lines.append(
+            f"\n{rank} {c['name']} {c['trend_icon']}\n"
+            f"   {c['total_7d']} posts ({c['player_7d']} player, {c['gm_7d']} GM)\n"
+            f"   Avg gap: {c['avg_gap_str']} | Last post: {c['last_post_str']}"
+        )
+
+        for j, p in enumerate(c["top_players"]):
+            medal = player_medals[j] if j < 3 else f"   {j + 1}."
+            display = p["name"]
+            lines.append(f"   {medal} {display}: {p['count']} posts")
+
+    if dead:
+        lines.append("\n⚠️ Dead campaigns (0 posts in 7 days):")
+        for c in dead:
+            lines.append(f"   💀 {c['name']} (last post: {c['last_post_str']})")
+
+    message = "\n".join(lines)
+
+    print(f"Posting campaign leaderboard to ISSUES topic")
+    if send_message(group_id, leaderboard_topic, message):
+        state["last_leaderboard"] = now.isoformat()
+
+
+# ------------------------------------------------------------------ #
 #  Main
 # ------------------------------------------------------------------ #
 def main():
@@ -1151,6 +1335,9 @@ def main():
 
     # Combat turn pinger
     check_combat_turns(config, state)
+
+    # Campaign leaderboard (every 3 days, ISSUES topic)
+    post_campaign_leaderboard(config, state)
 
     # Prune old timestamps
     cleanup_timestamps(state)
