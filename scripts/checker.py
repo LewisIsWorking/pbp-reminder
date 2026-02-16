@@ -26,7 +26,6 @@ from pathlib import Path
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 GIST_TOKEN = os.environ.get("GIST_TOKEN", "")
 GIST_ID = os.environ.get("GIST_ID", "")
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 
 TELEGRAM_API = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
 GIST_API = f"https://api.github.com/gists/{GIST_ID}"
@@ -35,7 +34,6 @@ STATE_FILENAME = "pbp_state.json"
 CONFIG_PATH = Path(__file__).parent.parent / "config.json"
 BOONS_PATH = Path(__file__).parent.parent / "boons.json"
 ARCHIVE_PATH = Path(__file__).parent.parent / "data" / "weekly_archive.json"
-LOGS_PATH = Path(__file__).parent.parent / "data" / "pbp_logs"
 
 
 def fmt_date(dt: datetime) -> str:
@@ -86,7 +84,6 @@ LEADERBOARD_INTERVAL_DAYS = 3
 COMBAT_PING_HOURS = 4
 RECRUITMENT_INTERVAL_DAYS = 14
 REQUIRED_PLAYERS = 6
-SUMMARY_INTERVAL_DAYS = 5
 
 
 def load_config() -> dict:
@@ -424,20 +421,6 @@ def process_updates(updates: list, config: dict, state: dict) -> int:
             msg_time_iso = now_iso
         raw_text = msg.get("text", "").strip()
         text = raw_text.lower()
-
-        # ---- Store message text for weekly summaries ----
-        if raw_text and not raw_text.startswith("/"):
-            if "pbp_logs" not in state:
-                state["pbp_logs"] = {}
-            if thread_id_str not in state["pbp_logs"]:
-                state["pbp_logs"][thread_id_str] = []
-            is_gm = user_id in gm_ids
-            role = "GM" if is_gm else user_name
-            state["pbp_logs"][thread_id_str].append({
-                "t": msg_time_iso,
-                "who": role,
-                "text": raw_text[:2000],
-            })
 
         # ---- Combat commands (GM only) ----
         if "combat" not in state:
@@ -1073,9 +1056,8 @@ def archive_weekly_data(config: dict, state: dict):
 #  Timestamp cleanup (keep only last 15 days)
 # ------------------------------------------------------------------ #
 def cleanup_timestamps(state: dict):
-    """Prune old timestamps and log entries to prevent gist from growing."""
+    """Prune old timestamps to prevent gist from growing."""
     cutoff = (datetime.now(timezone.utc) - timedelta(days=15)).isoformat()
-    log_cutoff = (datetime.now(timezone.utc) - timedelta(days=8)).isoformat()
 
     for pid in list(state.get("post_timestamps", {}).keys()):
         for uid in list(state["post_timestamps"][pid].keys()):
@@ -1089,13 +1071,6 @@ def cleanup_timestamps(state: dict):
                 del state["post_timestamps"][pid][uid]
         if not state["post_timestamps"][pid]:
             del state["post_timestamps"][pid]
-
-    # Prune old PBP log entries (keep last 8 days as buffer)
-    for pid in list(state.get("pbp_logs", {}).keys()):
-        state["pbp_logs"][pid] = [
-            entry for entry in state["pbp_logs"][pid]
-            if entry.get("t", "") >= log_cutoff
-        ]
 
 
 # ------------------------------------------------------------------ #
@@ -1466,142 +1441,6 @@ def post_campaign_leaderboard(config: dict, state: dict):
 
 
 # ------------------------------------------------------------------ #
-#  PBP Weekly Summary (AI-generated recap)
-# ------------------------------------------------------------------ #
-SUMMARY_SYSTEM_PROMPT = """You are a narrator summarising a play-by-post tabletop RPG session.
-The game is set in Golarion (Pathfinder 2e / Starfinder), an adult 18+ high-fantasy world
-with explicit language, powerful magic, and clockwork technologies.
-
-You will receive a transcript of messages from the last several days.
-"GM" lines are the Game Master narrating the world. Other names are player characters.
-
-Write a recap in two parts:
-
-1. A SHORT narrative paragraph (3-5 sentences) written like the opening crawl of an episode.
-Dramatic, atmospheric, in-world voice. Present tense. No meta/game references.
-
-2. KEY BEATS as a short bullet list (3-7 items). Each bullet is one sentence
-capturing a significant moment, decision, or revelation. Use character names.
-
-Keep the total response under 300 words. Do not invent events not in the transcript.
-If the transcript is mostly combat mechanics or very sparse, summarise what you can
-and note the session was light on narrative."""
-
-def generate_pbp_summary(campaign_name: str, logs: list) -> str:
-    """Call Claude API to summarise PBP logs."""
-    if not ANTHROPIC_API_KEY:
-        print("No ANTHROPIC_API_KEY set, skipping summary")
-        return ""
-
-    # Build transcript
-    transcript_lines = []
-    for entry in logs:
-        timestamp = entry["t"][:10]  # Just the date
-        who = entry["who"]
-        text = entry["text"]
-        transcript_lines.append(f"[{timestamp}] {who}: {text}")
-
-    transcript = "\n".join(transcript_lines)
-
-    # Truncate if massive (keep last ~12000 chars to stay well within limits)
-    if len(transcript) > 12000:
-        transcript = "...(earlier messages trimmed)...\n" + transcript[-12000:]
-
-    try:
-        resp = requests.post(
-            "https://api.anthropic.com/v1/messages",
-            headers={
-                "x-api-key": ANTHROPIC_API_KEY,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-            },
-            json={
-                "model": "claude-haiku-4-5-20251001",
-                "max_tokens": 600,
-                "system": SUMMARY_SYSTEM_PROMPT,
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": (
-                            f"Here is the transcript for the campaign \"{campaign_name}\" "
-                            f"over the last {SUMMARY_INTERVAL_DAYS} days:\n\n{transcript}"
-                        ),
-                    }
-                ],
-            },
-            timeout=30,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        return data["content"][0]["text"]
-    except Exception as e:
-        print(f"Claude API error for {campaign_name}: {e}")
-        return ""
-
-
-def post_pbp_summaries(config: dict, state: dict):
-    """Generate and post AI summaries of PBP activity."""
-    group_id = config["group_id"]
-    now = datetime.now(timezone.utc)
-
-    if "last_summary" not in state:
-        state["last_summary"] = {}
-
-    for pair in config["topic_pairs"]:
-        pid = str(pair["pbp_topic_id"])
-        chat_topic_id = pair["chat_topic_id"]
-        name = pair["name"]
-
-        # Check interval
-        last_str = state["last_summary"].get(pid)
-        if last_str:
-            days_since = (now - datetime.fromisoformat(last_str)).total_seconds() / 86400
-            if days_since < SUMMARY_INTERVAL_DAYS:
-                continue
-
-        # Get logs
-        logs = state.get("pbp_logs", {}).get(pid, [])
-        if len(logs) < 5:
-            print(f"Skipping summary for {name}: only {len(logs)} messages")
-            continue
-
-        print(f"Generating summary for {name} ({len(logs)} messages)...")
-        summary = generate_pbp_summary(name, logs)
-
-        if not summary:
-            continue
-
-        # Calculate date range from actual log timestamps
-        first_date = logs[0]["t"][:10]
-        last_date = logs[-1]["t"][:10]
-
-        message = (
-            f"📜 Story So Far: {name}\n"
-            f"({first_date} to {last_date})\n\n"
-            f"{summary}"
-        )
-
-        if send_message(group_id, chat_topic_id, message):
-            print(f"Posted summary for {name}")
-            state["last_summary"][pid] = now.isoformat()
-
-            # Archive logs to repo before clearing
-            LOGS_PATH.mkdir(parents=True, exist_ok=True)
-            archive_file = LOGS_PATH / f"{pid}.json"
-            try:
-                with open(archive_file) as f:
-                    archived = json.load(f)
-            except (FileNotFoundError, json.JSONDecodeError):
-                archived = []
-            archived.extend(logs)
-            with open(archive_file, "w") as f:
-                json.dump(archived, f)
-
-            # Clear logs from state
-            state["pbp_logs"][pid] = []
-
-
-# ------------------------------------------------------------------ #
 #  Recruitment check (campaigns needing players)
 # ------------------------------------------------------------------ #
 def check_recruitment_needs(config: dict, state: dict):
@@ -1713,9 +1552,6 @@ def main():
 
     # Recruitment notices (every 2 weeks, campaigns under 6 players)
     check_recruitment_needs(config, state)
-
-    # PBP summaries (every 5 days, AI-generated recaps)
-    post_pbp_summaries(config, state)
 
     # Archive weekly summaries (before pruning timestamps)
     archive_weekly_data(config, state)
