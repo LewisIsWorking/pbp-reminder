@@ -755,21 +755,58 @@ def post_roster_summary(config: dict, state: dict):
             continue
 
         # Build player lines sorted by message count (descending)
+        topic_timestamps = state.get("post_timestamps", {}).get(pid, {})
+        week_ago = now - timedelta(days=7)
         lines = []
+
         for player in sorted(players, key=lambda p: counts.get(p["user_id"], 0), reverse=True):
             uid = player["user_id"]
-            display = display_name(player["first_name"], player.get("username", ""), player.get("last_name", ""))
+            first = player["first_name"]
+            last = player.get("last_name", "")
+            uname = player.get("username", "")
+            full = f"{first} {last}".strip() if last else first
             count = counts.get(uid, 0)
             last_post = datetime.fromisoformat(player["last_post_time"])
             time_str = fmt_relative_date(now, last_post)
 
-            lines.append(f"  {display}: {posts_str(count)} (last: {time_str})")
+            # Posts in last 7 days
+            user_timestamps = topic_timestamps.get(uid, [])
+            week_posts = [
+                datetime.fromisoformat(ts) for ts in user_timestamps
+                if datetime.fromisoformat(ts) >= week_ago
+            ]
+            week_count = len(week_posts)
+
+            # Average gap
+            avg_gap_str = "N/A"
+            if len(user_timestamps) >= 2:
+                sorted_ts = sorted(datetime.fromisoformat(ts) for ts in user_timestamps)
+                gaps = []
+                for i in range(1, len(sorted_ts)):
+                    gap_h = (sorted_ts[i] - sorted_ts[i - 1]).total_seconds() / 3600
+                    gaps.append(gap_h)
+                avg = sum(gaps) / len(gaps)
+                if avg < 1:
+                    avg_gap_str = f"{avg * 60:.0f} minutes"
+                else:
+                    avg_gap_str = f"{avg:.1f} hours"
+
+            block = f"{full}\n"
+            if uname:
+                block += f"  - @{uname}.\n"
+            block += (
+                f"  - {posts_str(count)} total.\n"
+                f"  - {posts_str(week_count)} in the last week.\n"
+                f"  - Average gap between posting: {avg_gap_str}.\n"
+                f"  - Last post: {time_str}."
+            )
+            lines.append(block)
 
         # Add GM stats if present
         for gm_id in gm_ids:
             gm_count = counts.get(gm_id, 0)
             if gm_count > 0:
-                lines.insert(0, f"  GM: {posts_str(gm_count)}")
+                lines.insert(0, f"GM: {posts_str(gm_count)}")
 
         if not lines:
             continue
