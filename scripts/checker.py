@@ -806,7 +806,41 @@ def post_roster_summary(config: dict, state: dict):
         for gm_id in gm_ids:
             gm_count = counts.get(gm_id, 0)
             if gm_count > 0:
-                lines.insert(0, f"GM: {posts_str(gm_count)}")
+                gm_timestamps = topic_timestamps.get(gm_id, [])
+                gm_week_posts = [
+                    datetime.fromisoformat(ts) for ts in gm_timestamps
+                    if datetime.fromisoformat(ts) >= week_ago
+                ]
+                gm_week_count = len(gm_week_posts)
+
+                gm_avg_gap_str = "N/A"
+                if len(gm_timestamps) >= 2:
+                    sorted_ts = sorted(datetime.fromisoformat(ts) for ts in gm_timestamps)
+                    gaps = []
+                    for i in range(1, len(sorted_ts)):
+                        gap_h = (sorted_ts[i] - sorted_ts[i - 1]).total_seconds() / 3600
+                        gaps.append(gap_h)
+                    avg = sum(gaps) / len(gaps)
+                    if avg < 1:
+                        gm_avg_gap_str = f"{avg * 60:.0f} minutes"
+                    else:
+                        gm_avg_gap_str = f"{avg:.1f} hours"
+
+                # Find GM's last post time
+                if gm_timestamps:
+                    gm_last = max(datetime.fromisoformat(ts) for ts in gm_timestamps)
+                    gm_last_str = fmt_relative_date(now, gm_last)
+                else:
+                    gm_last_str = "N/A"
+
+                gm_block = (
+                    f"GM\n"
+                    f"  - {posts_str(gm_count)} total.\n"
+                    f"  - {posts_str(gm_week_count)} in the last week.\n"
+                    f"  - Average gap between posting: {gm_avg_gap_str}.\n"
+                    f"  - Last post: {gm_last_str}."
+                )
+                lines.insert(0, gm_block)
 
         if not lines:
             continue
