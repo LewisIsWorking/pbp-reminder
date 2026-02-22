@@ -1385,6 +1385,7 @@ def post_campaign_leaderboard(config: dict, state: dict):
     six_days_ago = now - timedelta(days=6)  # previous 3-day window
 
     campaign_stats = []
+    global_player_posts = {}  # user display name -> {count, campaigns}
 
     for pair in config["topic_pairs"]:
         pid = str(pair["pbp_topic_id"])
@@ -1511,6 +1512,14 @@ def post_campaign_leaderboard(config: dict, state: dict):
             reverse=True,
         )[:3]
 
+        # Accumulate into global player tracker
+        for uid, pdata in player_post_counts.items():
+            dname = display_name(pdata["name"], pdata.get("username", ""), pdata.get("last_name", ""))
+            if dname not in global_player_posts:
+                global_player_posts[dname] = {"count": 0, "campaigns": 0}
+            global_player_posts[dname]["count"] += pdata["count"]
+            global_player_posts[dname]["campaigns"] += 1
+
         campaign_stats.append({
             "name": name,
             "total_7d": total_7d,
@@ -1541,7 +1550,7 @@ def post_campaign_leaderboard(config: dict, state: dict):
     rank_icons = ["🥇", "🥈", "🥉"]
     player_medals = ["🥇", "🥈", "🥉"]
 
-    lines = [f"📊 Campaign Leaderboard ({date_from} to {date_to})\n"]
+    lines = [f"📊 Weekly Campaign Leaderboard ({date_from} to {date_to})\n"]
 
     for i, c in enumerate(active):
         rank = rank_icons[i] if i < 3 else f"{i + 1}."
@@ -1571,6 +1580,20 @@ def post_campaign_leaderboard(config: dict, state: dict):
         for i, c in enumerate(gap_ranked):
             icon = rank_icons[i] if i < 3 else f"{i + 1}."
             lines.append(f"   {icon} {c['name']}: {c['player_avg_gap_str']}")
+
+    # Overall Player of the Week (most sessions across all campaigns)
+    if global_player_posts:
+        top_global = sorted(
+            global_player_posts.items(),
+            key=lambda x: x[1]["count"],
+            reverse=True,
+        )
+        winner_name, winner_data = top_global[0]
+        campaign_word = "campaign" if winner_data["campaigns"] == 1 else "campaigns"
+        lines.append(
+            f"\n⭐ Overall Player of the Week: {winner_name}\n"
+            f"   {posts_str(winner_data['count'])} across {winner_data['campaigns']} {campaign_word}"
+        )
 
     message = "\n".join(lines)
 
