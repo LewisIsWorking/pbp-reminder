@@ -1579,7 +1579,7 @@ def post_campaign_leaderboard(config: dict, state: dict):
             block += f"- {posts_str(p['count'])}"
             player_blocks.append(block)
 
-        lines.append("\n" + campaign_block + "\n\n" + "\n\n".join(player_blocks))
+        lines.append("\n━━━━━━━━━━━━━━━━\n\n" + campaign_block + "\n\n" + "\n\n".join(player_blocks))
 
     if dead:
         lines.append("\n⚠️ Dead campaigns (0 posts in 7 days):")
