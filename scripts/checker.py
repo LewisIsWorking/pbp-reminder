@@ -1505,12 +1505,12 @@ def post_campaign_leaderboard(config: dict, state: dict):
         else:
             trend_icon = "➡️"
 
-        # Top 3 players by post count
+        # All players by post count
         top_players = sorted(
             player_post_counts.values(),
             key=lambda p: p["count"],
             reverse=True,
-        )[:3]
+        )
 
         # Accumulate into global player tracker
         for uid, pdata in player_post_counts.items():
