@@ -1581,19 +1581,18 @@ def post_campaign_leaderboard(config: dict, state: dict):
             icon = rank_icons[i] if i < 3 else f"{i + 1}."
             lines.append(f"   {icon} {c['name']}: {c['player_avg_gap_str']}")
 
-    # Overall Player of the Week (most sessions across all campaigns)
+    # Overall top players (most sessions across all campaigns)
     if global_player_posts:
         top_global = sorted(
             global_player_posts.items(),
             key=lambda x: x[1]["count"],
             reverse=True,
-        )
-        winner_name, winner_data = top_global[0]
-        campaign_word = "campaign" if winner_data["campaigns"] == 1 else "campaigns"
-        lines.append(
-            f"\n⭐ Overall Player of the Week: {winner_name}\n"
-            f"   {posts_str(winner_data['count'])} across {winner_data['campaigns']} {campaign_word}"
-        )
+        )[:10]
+        lines.append("\n⭐ Top Players of the Week:")
+        for i, (pname, pdata) in enumerate(top_global):
+            icon = rank_icons[i] if i < 3 else f"   {i + 1}."
+            campaign_word = "campaign" if pdata["campaigns"] == 1 else "campaigns"
+            lines.append(f"   {icon} {pname}: {posts_str(pdata['count'])} across {pdata['campaigns']} {campaign_word}")
 
     message = "\n".join(lines)
 
