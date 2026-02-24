@@ -423,106 +423,82 @@ def check_player_activity(config: dict, state: dict):
 # ------------------------------------------------------------------ #
 #  Party roster summary (every 3 days)
 # ------------------------------------------------------------------ #
+def _roster_user_stats(raw_timestamps: list[str], total_count: int, now: datetime) -> dict:
+    """Compute roster stats from raw ISO timestamp strings.
+
+    Returns dict with: total, sessions, week_count, avg_gap_str, last_post_str.
+    """
+    week_ago = now - timedelta(days=7)
+    all_posts = sorted(datetime.fromisoformat(ts) for ts in raw_timestamps)
+    sessions = deduplicate_posts(all_posts)
+    week_posts = [t for t in all_posts if t >= week_ago]
+    week_count = len(deduplicate_posts(week_posts))
+    avg_gap_str = calc_avg_gap_str(raw_timestamps)
+    last_post_str = fmt_relative_date(now, all_posts[-1]) if all_posts else "N/A"
+    return {
+        "total": total_count,
+        "sessions": len(sessions),
+        "week_count": week_count,
+        "avg_gap_str": avg_gap_str,
+        "last_post_str": last_post_str,
+    }
+
+
+def _roster_block(label: str, username: str, stats: dict) -> str:
+    """Format a single roster entry (player or GM)."""
+    s_suffix = "s" if stats["sessions"] != 1 else ""
+    block = f"{label}\n"
+    if username:
+        block += f"- @{username}.\n"
+    block += (
+        f"- {posts_str(stats['total'])} total.\n"
+        f"- {stats['sessions']} posting session{s_suffix}.\n"
+        f"- {posts_str(stats['week_count'])} in the last week.\n"
+        f"- Average gap between posting: {stats['avg_gap_str']}.\n"
+        f"- Last post: {stats['last_post_str']}."
+    )
+    return block
+
+
 def post_roster_summary(config: dict, state: dict):
     """Post a summary of all tracked players per campaign to CHAT topics."""
     group_id = config["group_id"]
     now = datetime.now(timezone.utc)
 
-
-    # Build lookup: canonical pbp_topic_id -> chat_topic_id / name
     maps = build_topic_maps(config)
-
-    # Group players by campaign (pbp_topic_id)
     campaigns = helpers.players_by_campaign(state)
-
-    # Also include GM message counts
     gm_ids = helpers.gm_id_set(config)
 
     for pid, chat_topic_id in maps.to_chat.items():
-        # Check if we posted a roster recently
-        last_roster_str = state["last_roster"].get(pid)
-        if not helpers.interval_elapsed(last_roster_str, helpers.ROSTER_INTERVAL_DAYS, now):
+        if not helpers.interval_elapsed(state["last_roster"].get(pid), helpers.ROSTER_INTERVAL_DAYS, now):
             continue
 
         name = maps.to_name.get(pid, "Unknown")
         players = campaigns.get(pid, [])
         counts = state.get("message_counts", {}).get(pid, {})
+        topic_timestamps = state.get("post_timestamps", {}).get(pid, {})
 
         if not players and not counts:
-            # No data yet for this campaign
             continue
 
-        # Build player lines sorted by message count (descending)
-        topic_timestamps = state.get("post_timestamps", {}).get(pid, {})
-        week_ago = now - timedelta(days=7)
         lines = []
 
         for player in sorted(players, key=lambda p: counts.get(p["user_id"], 0), reverse=True):
             uid = player["user_id"]
-            first = player["first_name"]
-            last = player.get("last_name", "")
-            uname = player.get("username", "")
-            full = f"{first} {last}".strip() if last else first
-            count = counts.get(uid, 0)
-            last_post = datetime.fromisoformat(player["last_post_time"])
-            time_str = fmt_relative_date(now, last_post)
-
-            # Posts in last 7 days (deduped into sessions)
-            user_timestamps = topic_timestamps.get(uid, [])
-            week_posts = [
-                datetime.fromisoformat(ts) for ts in user_timestamps
-                if datetime.fromisoformat(ts) >= week_ago
-            ]
-            week_count = len(deduplicate_posts(week_posts))
-
-            # Average gap (using deduped sessions)
-            avg_gap_str = calc_avg_gap_str(user_timestamps)
-            all_posts = sorted(datetime.fromisoformat(ts) for ts in user_timestamps)
-            sessions = deduplicate_posts(all_posts)
-
-            block = f"{full}\n"
-            if uname:
-                block += f"- @{uname}.\n"
-            block += (
-                f"- {posts_str(count)} total.\n"
-                f"- {len(sessions)} posting session{'s' if len(sessions) != 1 else ''}.\n"
-                f"- {posts_str(week_count)} in the last week.\n"
-                f"- Average gap between posting: {avg_gap_str}.\n"
-                f"- Last post: {time_str}."
-            )
-            lines.append(block)
+            raw_ts = topic_timestamps.get(uid, [])
+            if not raw_ts:
+                continue
+            full = f"{player['first_name']} {player.get('last_name', '')}".strip()
+            stats = _roster_user_stats(raw_ts, counts.get(uid, 0), now)
+            lines.append(_roster_block(full, player.get("username", ""), stats))
 
         # Add GM stats if present
         for gm_id in gm_ids:
             gm_count = counts.get(gm_id, 0)
-            if gm_count > 0:
-                gm_timestamps = topic_timestamps.get(gm_id, [])
-                gm_week_posts = [
-                    datetime.fromisoformat(ts) for ts in gm_timestamps
-                    if datetime.fromisoformat(ts) >= week_ago
-                ]
-                gm_week_count = len(deduplicate_posts(gm_week_posts))
-
-                gm_avg_gap_str = calc_avg_gap_str(gm_timestamps)
-                gm_all_posts = sorted(datetime.fromisoformat(ts) for ts in gm_timestamps)
-                gm_sessions = deduplicate_posts(gm_all_posts)
-
-                # Find GM's last post time
-                if gm_timestamps:
-                    gm_last = max(datetime.fromisoformat(ts) for ts in gm_timestamps)
-                    gm_last_str = fmt_relative_date(now, gm_last)
-                else:
-                    gm_last_str = "N/A"
-
-                gm_block = (
-                    f"GM\n"
-                    f"- {posts_str(gm_count)} total.\n"
-                    f"- {len(gm_sessions)} posting session{'s' if len(gm_sessions) != 1 else ''}.\n"
-                    f"- {posts_str(gm_week_count)} in the last week.\n"
-                    f"- Average gap between posting: {gm_avg_gap_str}.\n"
-                    f"- Last post: {gm_last_str}."
-                )
-                lines.insert(0, gm_block)
+            raw_ts = topic_timestamps.get(gm_id, [])
+            if gm_count > 0 and raw_ts:
+                stats = _roster_user_stats(raw_ts, gm_count, now)
+                lines.insert(0, _roster_block("GM", "", stats))
 
         if not lines:
             continue
@@ -759,6 +735,7 @@ def archive_weekly_data(config: dict, state: dict):
     week_end = week_start + timedelta(days=7)
 
     maps = build_topic_maps(config)
+    all_campaigns = helpers.players_by_campaign(state)
 
     for pid, name in maps.to_name.items():
         topic_timestamps = state.get("post_timestamps", {}).get(pid, {})
@@ -799,11 +776,7 @@ def archive_weekly_data(config: dict, state: dict):
         raw_gap = helpers.avg_gap_hours(sorted(player_post_times))
         player_avg_gap = round(raw_gap, 1) if raw_gap is not None else None
 
-        # Count active players
-        active_players = len([
-            pk for pk, p in state.get("players", {}).items()
-            if p.get("pbp_topic_id") == pid
-        ])
+        active_players = len(all_campaigns.get(pid, []))
 
         archive_key = f"{pid}:{week_key}"
         archive[archive_key] = {
@@ -921,10 +894,10 @@ def post_pace_report(config: dict, state: dict):
             f"  Players: {player_last} posts ({player_last / 7.0:.1f}/day)\n"
             f"  Total: {last_week} posts ({last_avg:.1f}/day)\n"
             f"\n"
-            f"Trend: {trend}"
+            f"Trend: {icon}"
         )
 
-        print(f"Pace report for {name}: {this_week} vs {last_week} ({trend})")
+        print(f"Pace report for {name}: {this_week} vs {last_week} ({icon})")
         if tg.send_message(group_id, chat_topic_id, message):
             state["last_pace"][pid] = now.isoformat()
 
