@@ -34,6 +34,7 @@ def init(gist_token: str, gist_id: str):
 
 
 def load() -> dict:
+    """Load bot state from GitHub Gist, or return defaults if unavailable."""
     if not GIST_API or not GIST_TOKEN:
         print("Warning: No GIST_ID or GIST_TOKEN set, starting with empty state")
         return dict(DEFAULT_STATE)
@@ -66,6 +67,7 @@ def load() -> dict:
 
 
 def save(state: dict):
+    """Persist bot state to GitHub Gist."""
     if not GIST_API or not GIST_TOKEN:
         print("Warning: No GIST_ID or GIST_TOKEN set, cannot save state")
         return

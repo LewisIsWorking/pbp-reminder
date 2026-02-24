@@ -44,6 +44,7 @@ MECHANICAL_BOONS = [
 #  Config loading
 # ------------------------------------------------------------------ #
 def load_config() -> dict:
+    """Load and return the config.json file."""
     with open(CONFIG_PATH) as f:
         return json.load(f)
 
@@ -106,7 +107,7 @@ def avg_gap_hours(sorted_times: list[datetime]) -> float | None:
 
 def fmt_brief_relative(now: datetime, then: datetime | None) -> tuple[str, float]:
     """Short relative time (no date). Returns (string, days_since).
-    
+
     Used by leaderboard for compact display: 'today', '5h ago', 'yesterday', '3d ago', 'never'.
     """
     if not then:

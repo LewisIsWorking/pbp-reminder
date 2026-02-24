@@ -13,6 +13,7 @@ def init(token: str):
 
 
 def get_updates(offset: int) -> list:
+    """Fetch new messages and callbacks from Telegram Bot API."""
     resp = requests.get(
         f"{TELEGRAM_API}/getUpdates",
         params={
@@ -36,6 +37,7 @@ def get_updates(offset: int) -> list:
 
 
 def send_message(chat_id: int, thread_id: int, text: str) -> bool:
+    """Send a text message to a specific thread. Returns True on success."""
     resp = requests.post(
         f"{TELEGRAM_API}/sendMessage",
         json={

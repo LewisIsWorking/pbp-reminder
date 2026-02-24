@@ -191,6 +191,7 @@ def _handle_combat_message(
 
 
 def process_updates(updates: list, config: dict, state: dict) -> int:
+    """Process new Telegram updates, tracking posts and handling commands. Returns new offset."""
     group_id = config["group_id"]
     gm_ids = helpers.gm_id_set(config)
 
@@ -297,6 +298,7 @@ def process_updates(updates: list, config: dict, state: dict) -> int:
 #  Topic inactivity alerts (4-hour)
 # ------------------------------------------------------------------ #
 def check_and_alert(config: dict, state: dict):
+    """Send alerts to campaigns inactive beyond alert_after_hours."""
     group_id = config["group_id"]
     alert_hours = config.get("alert_after_hours", 4)
     now = datetime.now(timezone.utc)
@@ -354,6 +356,7 @@ def check_and_alert(config: dict, state: dict):
 #  Player inactivity tracking (weekly)
 # ------------------------------------------------------------------ #
 def check_player_activity(config: dict, state: dict):
+    """Warn inactive players at 1/2/3 weeks, remove at 4 weeks."""
     group_id = config["group_id"]
     now = datetime.now(timezone.utc)
 
@@ -1183,6 +1186,7 @@ def check_recruitment_needs(config: dict, state: dict):
 #  Main
 # ------------------------------------------------------------------ #
 def main():
+    """Entry point: load config/state, process updates, run all scheduled checks, save."""
     telegram_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
     gist_token = os.environ.get("GIST_TOKEN", "")
     gist_id = os.environ.get("GIST_ID", "")
