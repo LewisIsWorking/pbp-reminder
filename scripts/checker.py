@@ -522,14 +522,40 @@ def post_roster_summary(config: dict, state: dict):
 # ------------------------------------------------------------------ #
 #  Player of the Week (weekly, consistency-based)
 # ------------------------------------------------------------------ #
+def _gather_potw_candidates(
+    topic_timestamps: dict, gm_ids: set, week_ago: datetime, pid: str, state: dict,
+) -> list[dict]:
+    """Find POTW candidates: players with enough posts, ranked by avg gap."""
+    candidates = []
+    for user_id, timestamps in topic_timestamps.items():
+        if user_id in gm_ids:
+            continue
+
+        sessions = deduplicate_posts(timestamps_in_window(timestamps, week_ago))
+        if len(sessions) < helpers.POTW_MIN_POSTS:
+            continue
+
+        sessions.sort()
+        avg_gap = helpers.avg_gap_hours(sessions) or float("inf")
+
+        player = state.get("players", {}).get(f"{pid}:{user_id}", {})
+        candidates.append({
+            "user_id": user_id,
+            "first_name": player.get("first_name", "Unknown"),
+            "last_name": player.get("last_name", ""),
+            "username": player.get("username", ""),
+            "avg_gap_hours": avg_gap,
+            "post_count": len(sessions),
+        })
+    return candidates
+
+
 def player_of_the_week(config: dict, state: dict):
     """Award Player of the Week based on smallest average gap between posts."""
     group_id = config["group_id"]
     now = datetime.now(timezone.utc)
     gm_ids = helpers.gm_id_set(config)
 
-
-    # Load boons
     try:
         with open(helpers.BOONS_PATH) as f:
             boons = json.load(f)
@@ -537,73 +563,32 @@ def player_of_the_week(config: dict, state: dict):
         print(f"Warning: Could not load boons: {e}")
         boons = ["Something mildly beneficial happens to you today."]
 
-    # Build lookup
     maps = build_topic_maps(config)
-
     week_ago = now - timedelta(days=7)
 
     for pid, chat_topic_id in maps.to_chat.items():
-        # Check if we already awarded this week
         if not helpers.interval_elapsed(state["last_potw"].get(pid), helpers.POTW_INTERVAL_DAYS, now):
             continue
 
         name = maps.to_name.get(pid, "Unknown")
         topic_timestamps = state.get("post_timestamps", {}).get(pid, {})
 
-        # Calculate average gap for each player this week
-        candidates = []
-
-        for user_id, timestamps in topic_timestamps.items():
-            if user_id in gm_ids:
-                continue
-
-            # Filter to this week's posts, dedup into sessions
-            sessions = deduplicate_posts(timestamps_in_window(timestamps, week_ago))
-
-            if len(sessions) < helpers.POTW_MIN_POSTS:
-                continue
-
-            # Sort and calculate gaps between sessions
-            sessions.sort()
-            avg_gap = helpers.avg_gap_hours(sessions) or float("inf")
-
-            # Find player name
-            player_key = f"{pid}:{user_id}"
-            player = state.get("players", {}).get(player_key, {})
-            first_name = player.get("first_name", "Unknown")
-            last_name = player.get("last_name", "")
-            username = player.get("username", "")
-
-            candidates.append({
-                "user_id": user_id,
-                "first_name": first_name,
-                "last_name": last_name,
-                "username": username,
-                "avg_gap_hours": avg_gap,
-                "post_count": len(sessions),
-            })
-
+        candidates = _gather_potw_candidates(topic_timestamps, gm_ids, week_ago, pid, state)
         if not candidates:
             print(f"No POTW candidates for {name} (need {helpers.POTW_MIN_POSTS}+ posts)")
             continue
 
-        # Winner = smallest average gap
         winner = min(candidates, key=lambda c: c["avg_gap_hours"])
         mention = display_name(winner["first_name"], winner["username"], winner["last_name"])
         avg_gap_str = f"{winner['avg_gap_hours']:.1f}h"
 
-        # Date range for display
-        date_from = fmt_date(week_ago)
-        date_to = fmt_date(now)
-
         # Pick 3 random flavour boons + 1 mechanical boon
         chosen_boons = random.sample(boons, min(3, len(boons)))
-        mech_boon = random.choice(helpers.MECHANICAL_BOONS)
-        chosen_boons.append(mech_boon)
+        chosen_boons.append(random.choice(helpers.MECHANICAL_BOONS))
 
         base_message = (
             f"Player of the Week for {name}: {mention}!\n"
-            f"({date_from} to {date_to})\n\n"
+            f"({fmt_date(week_ago)} to {fmt_date(now)})\n\n"
             f"{posts_str(winner['post_count'])} this week with an average "
             f"gap of {avg_gap_str} between posts. The most consistent "
             f"driver of the story."
@@ -613,22 +598,15 @@ def player_of_the_week(config: dict, state: dict):
         for i, b in enumerate(chosen_boons):
             boon_text += f"\n{i + 1}. {b}\n"
 
-        full_text = base_message + boon_text
-
-        # Build inline keyboard buttons
-        buttons = []
-        for i in range(len(chosen_boons)):
-            buttons.append({
-                "text": f"Boon #{i + 1}",
-                "callback_data": f"boon:{pid}:{i}",
-            })
+        buttons = [
+            {"text": f"Boon #{i + 1}", "callback_data": f"boon:{pid}:{i}"}
+            for i in range(len(chosen_boons))
+        ]
 
         print(f"POTW for {name}: {winner['first_name']} (avg gap {avg_gap_str})")
-        msg_id = tg.send_message_with_buttons(group_id, chat_topic_id, full_text, buttons)
+        msg_id = tg.send_message_with_buttons(group_id, chat_topic_id, base_message + boon_text, buttons)
         if msg_id:
             state["last_potw"][pid] = now.isoformat()
-
-            # Store pending choice
             state["pending_potw_boons"][pid] = {
                 "message_id": msg_id,
                 "winner_user_id": winner["user_id"],
@@ -844,25 +822,17 @@ def post_pace_report(config: dict, state: dict):
         if not topic_timestamps:
             continue
 
-        # Count posts split by GM vs players
-        gm_this = 0
-        gm_last = 0
-        player_this = 0
-        player_last = 0
+        # Count posts split by GM vs players, this week vs last week
+        gm_this = gm_last = player_this = player_last = 0
         for uid, timestamps in topic_timestamps.items():
-            is_gm = uid in gm_ids
-            for ts in timestamps:
-                post_time = datetime.fromisoformat(ts)
-                if post_time >= week_ago:
-                    if is_gm:
-                        gm_this += 1
-                    else:
-                        player_this += 1
-                elif post_time >= two_weeks_ago:
-                    if is_gm:
-                        gm_last += 1
-                    else:
-                        player_last += 1
+            this_count = len(timestamps_in_window(timestamps, week_ago))
+            last_count = len(timestamps_in_window(timestamps, two_weeks_ago, week_ago))
+            if uid in gm_ids:
+                gm_this += this_count
+                gm_last += last_count
+            else:
+                player_this += this_count
+                player_last += last_count
 
         this_week = gm_this + player_this
         last_week = gm_last + player_last
@@ -985,15 +955,9 @@ def _gather_leaderboard_stats(config: dict, state: dict, now: datetime):
             p_last_name = player_info.get("last_name", "")
             p_username = player_info.get("username", "")
 
-            user_7d_posts = []
-            for ts in timestamps:
-                post_time = datetime.fromisoformat(ts)
-                if post_time >= seven_days_ago:
-                    user_7d_posts.append(post_time)
-                if post_time >= three_days_ago:
-                    posts_recent_3d += 1
-                elif post_time >= six_days_ago:
-                    posts_prev_3d += 1
+            user_7d_posts = timestamps_in_window(timestamps, seven_days_ago)
+            posts_recent_3d += len(timestamps_in_window(timestamps, three_days_ago))
+            posts_prev_3d += len(timestamps_in_window(timestamps, six_days_ago, three_days_ago))
 
             user_sessions = deduplicate_posts(user_7d_posts)
             session_count = len(user_sessions)
@@ -1004,14 +968,13 @@ def _gather_leaderboard_stats(config: dict, state: dict, now: datetime):
             else:
                 player_7d += session_count
                 player_post_times_7d.extend(user_sessions)
-                if session_count > 0 and uid not in player_post_counts:
-                    player_post_counts[uid] = {
+                if session_count > 0:
+                    player_post_counts.setdefault(uid, {
                         "name": p_name,
                         "last_name": p_last_name,
                         "username": p_username,
                         "count": 0,
-                    }
-                if uid in player_post_counts:
+                    })
                     player_post_counts[uid]["count"] += session_count
 
         total_7d = gm_7d + player_7d
@@ -1026,13 +989,9 @@ def _gather_leaderboard_stats(config: dict, state: dict, now: datetime):
         player_avg_gap = helpers.avg_gap_hours(player_post_times_7d)
         player_avg_gap_str = f"{player_avg_gap:.1f}h" if player_avg_gap is not None else "N/A"
 
-        # Last post
-        last_post_time = None
-        for uid, timestamps in topic_timestamps.items():
-            for ts in timestamps:
-                pt = datetime.fromisoformat(ts)
-                if last_post_time is None or pt > last_post_time:
-                    last_post_time = pt
+        # Last post across all users
+        all_ts = [ts for tss in topic_timestamps.values() for ts in tss]
+        last_post_time = max((datetime.fromisoformat(ts) for ts in all_ts), default=None) if all_ts else None
 
         last_post_str, days_since_last = helpers.fmt_brief_relative(now, last_post_time)
         trend = helpers.trend_icon(posts_recent_3d, posts_prev_3d)
