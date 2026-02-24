@@ -20,6 +20,9 @@ DEFAULT_STATE = {
     "last_pace": {},
     "last_anniversary": {},
     "combat": {},
+    "pending_potw_boons": {},
+    "last_recruitment_check": {},
+    "last_leaderboard": None,
 }
 
 

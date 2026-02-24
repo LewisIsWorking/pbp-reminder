@@ -69,6 +69,18 @@ def load_settings(config: dict):
     POST_SESSION_MINUTES = s.get("post_session_minutes", POST_SESSION_MINUTES)
 
 
+def gm_id_set(config: dict) -> set:
+    """Return GM user IDs as a set of strings."""
+    return set(str(uid) for uid in config.get("gm_user_ids", []))
+
+
+def interval_elapsed(last_iso: str | None, interval_days: float, now: datetime) -> bool:
+    """Return True if enough time has passed since last_iso, or if last_iso is None."""
+    if not last_iso:
+        return True
+    return (now - datetime.fromisoformat(last_iso)).total_seconds() / 86400 >= interval_days
+
+
 # ------------------------------------------------------------------ #
 #  Formatting helpers
 # ------------------------------------------------------------------ #

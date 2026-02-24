@@ -126,7 +126,7 @@ def expire_pending_boons(config: dict, state: dict):
 # ------------------------------------------------------------------ #
 def process_updates(updates: list, config: dict, state: dict) -> int:
     group_id = config["group_id"]
-    gm_ids = set(str(uid) for uid in config.get("gm_user_ids", []))
+    gm_ids = helpers.gm_id_set(config)
 
     topic_to_canonical, canonical_to_chat, canonical_to_name, all_pbp_ids = build_topic_maps(config)
 
@@ -182,8 +182,6 @@ def process_updates(updates: list, config: dict, state: dict) -> int:
         text = raw_text.lower()
 
         # ---- Combat commands (GM only) ----
-        if "combat" not in state:
-            state["combat"] = {}
 
         if user_id in gm_ids:
             # /round <number> <players|enemies>
@@ -442,8 +440,6 @@ def post_roster_summary(config: dict, state: dict):
     group_id = config["group_id"]
     now = datetime.now(timezone.utc)
 
-    if "last_roster" not in state:
-        state["last_roster"] = {}
 
     # Build lookup: canonical pbp_topic_id -> chat_topic_id / name
     _, chat_topics, campaign_names, _ = build_topic_maps(config)
@@ -457,16 +453,13 @@ def post_roster_summary(config: dict, state: dict):
         campaigns[pid].append(player)
 
     # Also include GM message counts
-    gm_ids = set(str(uid) for uid in config.get("gm_user_ids", []))
+    gm_ids = helpers.gm_id_set(config)
 
     for pid, chat_topic_id in chat_topics.items():
         # Check if we posted a roster recently
         last_roster_str = state["last_roster"].get(pid)
-        if last_roster_str:
-            last_roster = datetime.fromisoformat(last_roster_str)
-            days_since = (now - last_roster).total_seconds() / 86400
-            if days_since < helpers.ROSTER_INTERVAL_DAYS:
-                continue
+        if not helpers.interval_elapsed(last_roster_str, helpers.ROSTER_INTERVAL_DAYS, now):
+            continue
 
         name = campaign_names.get(pid, "Unknown")
         players = campaigns.get(pid, [])
@@ -565,10 +558,8 @@ def player_of_the_week(config: dict, state: dict):
     """Award Player of the Week based on smallest average gap between posts."""
     group_id = config["group_id"]
     now = datetime.now(timezone.utc)
-    gm_ids = set(str(uid) for uid in config.get("gm_user_ids", []))
+    gm_ids = helpers.gm_id_set(config)
 
-    if "last_potw" not in state:
-        state["last_potw"] = {}
 
     # Load boons
     try:
@@ -585,12 +576,8 @@ def player_of_the_week(config: dict, state: dict):
 
     for pid, chat_topic_id in chat_topics.items():
         # Check if we already awarded this week
-        last_potw_str = state["last_potw"].get(pid)
-        if last_potw_str:
-            last_potw = datetime.fromisoformat(last_potw_str)
-            days_since = (now - last_potw).total_seconds() / 86400
-            if days_since < helpers.POTW_INTERVAL_DAYS:
-                continue
+        if not helpers.interval_elapsed(state["last_potw"].get(pid), helpers.POTW_INTERVAL_DAYS, now):
+            continue
 
         name = campaign_names.get(pid, "Unknown")
         topic_timestamps = state.get("post_timestamps", {}).get(pid, {})
@@ -686,8 +673,6 @@ def player_of_the_week(config: dict, state: dict):
             state["last_potw"][pid] = now.isoformat()
 
             # Store pending choice
-            if "pending_potw_boons" not in state:
-                state["pending_potw_boons"] = {}
             state["pending_potw_boons"][pid] = {
                 "message_id": msg_id,
                 "winner_user_id": winner["user_id"],
@@ -705,8 +690,6 @@ def check_combat_turns(config: dict, state: dict):
     group_id = config["group_id"]
     now = datetime.now(timezone.utc)
 
-    if "combat" not in state:
-        return
 
     # Build lookup: canonical pbp_topic_id -> chat_topic_id
     _, chat_topics, _, _ = build_topic_maps(config)
@@ -779,7 +762,7 @@ def archive_weekly_data(config: dict, state: dict):
     giving full git history and no gist size concerns.
     """
     now = datetime.now(timezone.utc)
-    gm_ids = set(str(uid) for uid in config.get("gm_user_ids", []))
+    gm_ids = helpers.gm_id_set(config)
 
     # Use last week's ISO week number (since current week is still in progress)
     last_week = now - timedelta(days=7)
@@ -904,10 +887,8 @@ def post_pace_report(config: dict, state: dict):
     """Post weekly pace comparison: posts/day this week vs last week, split GM/players."""
     group_id = config["group_id"]
     now = datetime.now(timezone.utc)
-    gm_ids = set(str(uid) for uid in config.get("gm_user_ids", []))
+    gm_ids = helpers.gm_id_set(config)
 
-    if "last_pace" not in state:
-        state["last_pace"] = {}
 
     _, chat_topics, campaign_names, _ = build_topic_maps(config)
 
@@ -915,11 +896,8 @@ def post_pace_report(config: dict, state: dict):
     two_weeks_ago = now - timedelta(days=14)
 
     for pid, chat_topic_id in chat_topics.items():
-        last_pace_str = state["last_pace"].get(pid)
-        if last_pace_str:
-            days_since = (now - datetime.fromisoformat(last_pace_str)).total_seconds() / 86400
-            if days_since < helpers.PACE_INTERVAL_DAYS:
-                continue
+        if not helpers.interval_elapsed(state["last_pace"].get(pid), helpers.PACE_INTERVAL_DAYS, now):
+            continue
 
         name = campaign_names.get(pid, "Unknown")
         topic_timestamps = state.get("post_timestamps", {}).get(pid, {})
@@ -1003,8 +981,6 @@ def check_anniversaries(config: dict, state: dict):
     now = datetime.now(timezone.utc)
     today = now.date()
 
-    if "last_anniversary" not in state:
-        state["last_anniversary"] = {}
 
     for pair in config["topic_pairs"]:
         pid = str(pair["pbp_topic_ids"][0])
@@ -1058,17 +1034,12 @@ def post_campaign_leaderboard(config: dict, state: dict):
         return
 
     now = datetime.now(timezone.utc)
-    gm_ids = set(str(uid) for uid in config.get("gm_user_ids", []))
+    gm_ids = helpers.gm_id_set(config)
 
-    if "last_leaderboard" not in state:
-        state["last_leaderboard"] = None
 
     # Check interval
-    last_lb_str = state["last_leaderboard"]
-    if last_lb_str:
-        days_since = (now - datetime.fromisoformat(last_lb_str)).total_seconds() / 86400
-        if days_since < helpers.LEADERBOARD_INTERVAL_DAYS:
-            return
+    if not helpers.interval_elapsed(state.get("last_leaderboard"), helpers.LEADERBOARD_INTERVAL_DAYS, now):
+        return
 
     seven_days_ago = now - timedelta(days=7)
     three_days_ago = now - timedelta(days=3)
@@ -1321,8 +1292,6 @@ def check_recruitment_needs(config: dict, state: dict):
     group_id = config["group_id"]
     now = datetime.now(timezone.utc)
 
-    if "last_recruitment_check" not in state:
-        state["last_recruitment_check"] = {}
 
     _, canonical_to_chat, canonical_to_name, _ = build_topic_maps(config)
 
@@ -1331,11 +1300,8 @@ def check_recruitment_needs(config: dict, state: dict):
         name = canonical_to_name[pid]
 
         # Check interval
-        last_check_str = state["last_recruitment_check"].get(pid)
-        if last_check_str:
-            days_since = (now - datetime.fromisoformat(last_check_str)).total_seconds() / 86400
-            if days_since < helpers.RECRUITMENT_INTERVAL_DAYS:
-                continue
+        if not helpers.interval_elapsed(state["last_recruitment_check"].get(pid), helpers.RECRUITMENT_INTERVAL_DAYS, now):
+            continue
 
         # Count active players (excluding GM)
         active = []
