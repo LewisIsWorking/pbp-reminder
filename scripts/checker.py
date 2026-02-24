@@ -21,6 +21,7 @@ import state as state_store
 from helpers import (
     fmt_date, fmt_relative_date, html_escape, display_name,
     posts_str, deduplicate_posts, calc_avg_gap_str, build_topic_maps,
+    timestamps_in_window,
 )
 
 
@@ -440,8 +441,7 @@ def _roster_user_stats(raw_timestamps: list[str], total_count: int, now: datetim
     week_ago = now - timedelta(days=7)
     all_posts = sorted(datetime.fromisoformat(ts) for ts in raw_timestamps)
     sessions = deduplicate_posts(all_posts)
-    week_posts = [t for t in all_posts if t >= week_ago]
-    week_count = len(deduplicate_posts(week_posts))
+    week_count = len(deduplicate_posts(timestamps_in_window(raw_timestamps, week_ago)))
     avg_gap_str = calc_avg_gap_str(raw_timestamps)
     last_post_str = fmt_relative_date(now, all_posts[-1]) if all_posts else "N/A"
     return {
@@ -557,15 +557,8 @@ def player_of_the_week(config: dict, state: dict):
             if user_id in gm_ids:
                 continue
 
-            # Filter to this week's posts only
-            week_posts = []
-            for ts in timestamps:
-                post_time = datetime.fromisoformat(ts)
-                if post_time >= week_ago:
-                    week_posts.append(post_time)
-
-            # Deduplicate: posts within 10 min = one session
-            sessions = deduplicate_posts(week_posts)
+            # Filter to this week's posts, dedup into sessions
+            sessions = deduplicate_posts(timestamps_in_window(timestamps, week_ago))
 
             if len(sessions) < helpers.POTW_MIN_POSTS:
                 continue
@@ -759,13 +752,9 @@ def archive_weekly_data(config: dict, state: dict):
             player_key = f"{pid}:{uid}"
             player_info = state.get("players", {}).get(player_key, {})
 
-            user_week_posts = []
-            for ts in timestamps:
-                post_time = datetime.fromisoformat(ts)
-                if week_start <= post_time < week_end:
-                    user_week_posts.append(post_time)
-
-            user_sessions = deduplicate_posts(user_week_posts)
+            user_sessions = deduplicate_posts(
+                timestamps_in_window(timestamps, week_start, week_end)
+            )
             session_count = len(user_sessions)
 
             if is_gm:

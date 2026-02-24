@@ -81,6 +81,20 @@ def interval_elapsed(last_iso: str | None, interval_days: float, now: datetime) 
     return (now - datetime.fromisoformat(last_iso)).total_seconds() / 86400 >= interval_days
 
 
+def timestamps_in_window(raw_timestamps: list[str], after: datetime,
+                         before: datetime | None = None) -> list[datetime]:
+    """Parse ISO timestamp strings and return those within the time window.
+
+    Returns datetimes where: after <= dt (and dt < before, if given).
+    """
+    results = []
+    for ts in raw_timestamps:
+        dt = datetime.fromisoformat(ts)
+        if dt >= after and (before is None or dt < before):
+            results.append(dt)
+    return results
+
+
 def avg_gap_hours(sorted_times: list[datetime]) -> float | None:
     """Return average gap in hours between sorted datetimes, or None if < 2 entries."""
     if len(sorted_times) < 2:
