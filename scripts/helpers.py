@@ -209,8 +209,11 @@ def calc_avg_gap_str(timestamps_iso: list[str]) -> str:
 # ------------------------------------------------------------------ #
 #  Topic mapping (multi-topic campaign support)
 # ------------------------------------------------------------------ #
+_topic_maps_cache = (None, None)  # (config_id, result)
+
+
 def build_topic_maps(config: dict):
-    """Build lookup dicts from config's topic_pairs.
+    """Build lookup dicts from config's topic_pairs. Cached per config object.
 
     Returns:
         topic_to_canonical: maps any pbp_topic_id (str) -> canonical pid (str, first in list)
@@ -218,6 +221,10 @@ def build_topic_maps(config: dict):
         canonical_to_name: maps canonical pid -> campaign name
         all_pbp_ids: set of all pbp topic id strings
     """
+    global _topic_maps_cache
+    if _topic_maps_cache[0] == id(config):
+        return _topic_maps_cache[1]
+
     topic_to_canonical = {}
     canonical_to_chat = {}
     canonical_to_name = {}
@@ -231,4 +238,6 @@ def build_topic_maps(config: dict):
             tid_str = str(tid)
             topic_to_canonical[tid_str] = canonical
             all_pbp_ids.add(tid_str)
-    return topic_to_canonical, canonical_to_chat, canonical_to_name, all_pbp_ids
+    result = (topic_to_canonical, canonical_to_chat, canonical_to_name, all_pbp_ids)
+    _topic_maps_cache = (id(config), result)
+    return result

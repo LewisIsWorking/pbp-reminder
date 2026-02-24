@@ -24,7 +24,6 @@ from helpers import (
 )
 
 
-
 # ------------------------------------------------------------------ #
 #  Boon choice callback handler
 # ------------------------------------------------------------------ #
@@ -418,8 +417,6 @@ def check_player_activity(config: dict, state: dict):
             "username": removed.get("username", ""),
             "campaign_name": removed["campaign_name"],
         }
-
-
 
 
 # ------------------------------------------------------------------ #
