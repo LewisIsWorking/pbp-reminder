@@ -123,11 +123,68 @@ def expire_pending_boons(config: dict, state: dict):
 # ------------------------------------------------------------------ #
 #  Process updates
 # ------------------------------------------------------------------ #
+def _handle_combat_message(
+    text: str, user_id: str, gm_ids: set, pid: str, campaign_name: str,
+    now_iso: str, group_id: int, thread_id: int, state: dict,
+):
+    """Process GM combat commands (/round, /endcombat) and track player actions."""
+    # GM commands
+    if user_id in gm_ids:
+        if text.startswith("/round"):
+            parts = text.split()
+            if len(parts) >= 3:
+                try:
+                    round_num = int(parts[1])
+                except ValueError:
+                    round_num = None
+                phase = parts[2].lower()
+                if round_num and phase in ("players", "enemies"):
+                    if pid not in state["combat"]:
+                        state["combat"][pid] = {
+                            "active": True,
+                            "campaign_name": campaign_name,
+                            "round": round_num,
+                            "current_phase": phase,
+                            "phase_started_at": now_iso,
+                            "players_acted": [],
+                            "last_ping_at": None,
+                        }
+                    else:
+                        combat = state["combat"][pid]
+                        if phase == "players" and (
+                            combat["current_phase"] != "players"
+                            or combat["round"] != round_num
+                        ):
+                            combat["players_acted"] = []
+                        combat["round"] = round_num
+                        combat["current_phase"] = phase
+                        combat["phase_started_at"] = now_iso
+                        combat["last_ping_at"] = None
+
+                    phase_label = "Players" if phase == "players" else "Enemies"
+                    print(f"Combat in {campaign_name}: Round {round_num}, {phase_label}")
+                    tg.send_message(group_id, thread_id, f"Round {round_num}. {phase_label}' turn.")
+
+        elif text.startswith("/endcombat") or text == "/combat end":
+            if pid in state["combat"]:
+                del state["combat"][pid]
+                print(f"Combat ended in {campaign_name}")
+                tg.send_message(group_id, thread_id, f"Combat ended in {campaign_name}.")
+
+    # Track player action during combat
+    combat = state["combat"].get(pid)
+    if (combat and combat["active"]
+            and combat["current_phase"] == "players"
+            and user_id not in gm_ids
+            and user_id not in combat.get("players_acted", [])):
+        combat["players_acted"].append(user_id)
+
+
 def process_updates(updates: list, config: dict, state: dict) -> int:
     group_id = config["group_id"]
     gm_ids = helpers.gm_id_set(config)
 
-    topic_to_canonical, canonical_to_chat, canonical_to_name, all_pbp_ids = build_topic_maps(config)
+    maps = build_topic_maps(config)
 
     new_offset = state.get("offset", 0)
 
@@ -156,7 +213,7 @@ def process_updates(updates: list, config: dict, state: dict) -> int:
 
         thread_id_str = str(thread_id)
 
-        if thread_id_str not in all_pbp_ids:
+        if thread_id_str not in maps.all_pbp_ids:
             continue
 
         from_user = msg.get("from", {})
@@ -168,8 +225,8 @@ def process_updates(updates: list, config: dict, state: dict) -> int:
         user_last_name = from_user.get("last_name", "")
         username = from_user.get("username", "")
         # Map to canonical topic ID so split topics merge
-        pid = topic_to_canonical[thread_id_str]
-        campaign_name = canonical_to_name[pid]
+        pid = maps.to_canonical[thread_id_str]
+        campaign_name = maps.to_name[pid]
         now_iso = datetime.now(timezone.utc).isoformat()
         # Use the actual Telegram message timestamp for gap calculations
         msg_date = msg.get("date")
@@ -180,67 +237,11 @@ def process_updates(updates: list, config: dict, state: dict) -> int:
         raw_text = msg.get("text", "").strip()
         text = raw_text.lower()
 
-        # ---- Combat commands (GM only) ----
-
-        if user_id in gm_ids:
-            # /round <number> <players|enemies>
-            # e.g. /round 1 enemies, /round 2 players
-            if text.startswith("/round"):
-                parts = text.split()
-                if len(parts) >= 3:
-                    try:
-                        round_num = int(parts[1])
-                    except ValueError:
-                        round_num = None
-                    phase = parts[2].lower()
-                    if round_num and phase in ("players", "enemies"):
-                        # Create combat if it doesn't exist yet
-                        if pid not in state["combat"]:
-                            state["combat"][pid] = {
-                                "active": True,
-                                "campaign_name": campaign_name,
-                                "round": round_num,
-                                "current_phase": phase,
-                                "phase_started_at": now_iso,
-                                "players_acted": [],
-                                "last_ping_at": None,
-                            }
-                        else:
-                            combat = state["combat"][pid]
-                            # Reset players_acted when switching to a new player phase
-                            if phase == "players" and (
-                                combat["current_phase"] != "players"
-                                or combat["round"] != round_num
-                            ):
-                                combat["players_acted"] = []
-                            combat["round"] = round_num
-                            combat["current_phase"] = phase
-                            combat["phase_started_at"] = now_iso
-                            combat["last_ping_at"] = None
-
-                        phase_label = "Players" if phase == "players" else "Enemies"
-                        print(f"Combat in {campaign_name}: Round {round_num}, {phase_label}")
-                        tg.send_message(
-                            config["group_id"], thread_id,
-                            f"Round {round_num}. {phase_label}' turn."
-                        )
-
-            elif text.startswith("/endcombat") or text == "/combat end":
-                if pid in state["combat"]:
-                    del state["combat"][pid]
-                    print(f"Combat ended in {campaign_name}")
-                    tg.send_message(
-                        config["group_id"], thread_id,
-                        f"Combat ended in {campaign_name}."
-                    )
-
-        # ---- Track player action during combat ----
-        combat = state["combat"].get(pid)
-        if (combat and combat["active"]
-                and combat["current_phase"] == "players"
-                and user_id not in gm_ids
-                and user_id not in combat.get("players_acted", [])):
-            combat["players_acted"].append(user_id)
+        # ---- Combat commands and tracking ----
+        _handle_combat_message(
+            text, user_id, gm_ids, pid, campaign_name,
+            now_iso, config["group_id"], thread_id, state,
+        )
 
         # Update topic-level tracking (for 4-hour alerts)
         state["topics"][pid] = {
@@ -290,10 +291,10 @@ def check_and_alert(config: dict, state: dict):
     alert_hours = config.get("alert_after_hours", 4)
     now = datetime.now(timezone.utc)
 
-    topic_to_canonical, canonical_to_chat, canonical_to_name, _ = build_topic_maps(config)
+    maps = build_topic_maps(config)
 
-    for pid, chat_topic_id in canonical_to_chat.items():
-        name = canonical_to_name[pid]
+    for pid, chat_topic_id in maps.to_chat.items():
+        name = maps.to_name[pid]
 
         if pid not in state.get("topics", {}):
             print(f"No messages tracked yet for {name}, skipping")
@@ -347,13 +348,13 @@ def check_player_activity(config: dict, state: dict):
     now = datetime.now(timezone.utc)
 
     # Build lookup: canonical pbp_topic_id -> chat_topic_id
-    _, canonical_to_chat, _, _ = build_topic_maps(config)
+    maps = build_topic_maps(config)
 
     players_to_remove = []
 
     for player_key, player in state["players"].items():
         pbp_topic_id = player["pbp_topic_id"]
-        chat_topic_id = canonical_to_chat.get(pbp_topic_id)
+        chat_topic_id = maps.to_chat.get(pbp_topic_id)
         if not chat_topic_id:
             continue
 
@@ -429,26 +430,21 @@ def post_roster_summary(config: dict, state: dict):
 
 
     # Build lookup: canonical pbp_topic_id -> chat_topic_id / name
-    _, chat_topics, campaign_names, _ = build_topic_maps(config)
+    maps = build_topic_maps(config)
 
     # Group players by campaign (pbp_topic_id)
-    campaigns = {}
-    for player_key, player in state.get("players", {}).items():
-        pid = player["pbp_topic_id"]
-        if pid not in campaigns:
-            campaigns[pid] = []
-        campaigns[pid].append(player)
+    campaigns = helpers.players_by_campaign(state)
 
     # Also include GM message counts
     gm_ids = helpers.gm_id_set(config)
 
-    for pid, chat_topic_id in chat_topics.items():
+    for pid, chat_topic_id in maps.to_chat.items():
         # Check if we posted a roster recently
         last_roster_str = state["last_roster"].get(pid)
         if not helpers.interval_elapsed(last_roster_str, helpers.ROSTER_INTERVAL_DAYS, now):
             continue
 
-        name = campaign_names.get(pid, "Unknown")
+        name = maps.to_name.get(pid, "Unknown")
         players = campaigns.get(pid, [])
         counts = state.get("message_counts", {}).get(pid, {})
 
@@ -557,16 +553,16 @@ def player_of_the_week(config: dict, state: dict):
         boons = ["Something mildly beneficial happens to you today."]
 
     # Build lookup
-    _, chat_topics, campaign_names, _ = build_topic_maps(config)
+    maps = build_topic_maps(config)
 
     week_ago = now - timedelta(days=7)
 
-    for pid, chat_topic_id in chat_topics.items():
+    for pid, chat_topic_id in maps.to_chat.items():
         # Check if we already awarded this week
         if not helpers.interval_elapsed(state["last_potw"].get(pid), helpers.POTW_INTERVAL_DAYS, now):
             continue
 
-        name = campaign_names.get(pid, "Unknown")
+        name = maps.to_name.get(pid, "Unknown")
         topic_timestamps = state.get("post_timestamps", {}).get(pid, {})
 
         # Calculate average gap for each player this week
@@ -674,7 +670,8 @@ def check_combat_turns(config: dict, state: dict):
 
 
     # Build lookup: canonical pbp_topic_id -> chat_topic_id
-    _, chat_topics, _, _ = build_topic_maps(config)
+    maps = build_topic_maps(config)
+    all_campaigns = helpers.players_by_campaign(state)
 
     for pid, combat in list(state["combat"].items()):
         if not combat.get("active"):
@@ -699,16 +696,11 @@ def check_combat_turns(config: dict, state: dict):
 
         # Find all known players in this campaign who haven't acted
         acted = set(combat.get("players_acted", []))
-        missing = []
-
-        for player_key, player in state.get("players", {}).items():
-            if player["pbp_topic_id"] != pid:
-                continue
-            if player["user_id"] in acted:
-                continue
-
-            uname = player.get("username", "")
-            missing.append(display_name(player["first_name"], uname, player.get("last_name", "")))
+        missing = [
+            display_name(p["first_name"], p.get("username", ""), p.get("last_name", ""))
+            for p in all_campaigns.get(pid, [])
+            if p["user_id"] not in acted
+        ]
 
         if not missing:
             continue
@@ -717,7 +709,7 @@ def check_combat_turns(config: dict, state: dict):
         round_num = combat.get("round", 1)
         hours_int = int(hours_elapsed)
 
-        chat_topic_id = chat_topics.get(pid)
+        chat_topic_id = maps.to_chat.get(pid)
         if not chat_topic_id:
             continue
 
@@ -766,9 +758,9 @@ def archive_weekly_data(config: dict, state: dict):
     week_start = now - timedelta(days=now.weekday() + 7)  # Start of last week (Monday)
     week_end = week_start + timedelta(days=7)
 
-    _, _, canonical_to_name, _ = build_topic_maps(config)
+    maps = build_topic_maps(config)
 
-    for pid, name in canonical_to_name.items():
+    for pid, name in maps.to_name.items():
         topic_timestamps = state.get("post_timestamps", {}).get(pid, {})
 
         gm_posts = 0
@@ -866,16 +858,16 @@ def post_pace_report(config: dict, state: dict):
     gm_ids = helpers.gm_id_set(config)
 
 
-    _, chat_topics, campaign_names, _ = build_topic_maps(config)
+    maps = build_topic_maps(config)
 
     week_ago = now - timedelta(days=7)
     two_weeks_ago = now - timedelta(days=14)
 
-    for pid, chat_topic_id in chat_topics.items():
+    for pid, chat_topic_id in maps.to_chat.items():
         if not helpers.interval_elapsed(state["last_pace"].get(pid), helpers.PACE_INTERVAL_DAYS, now):
             continue
 
-        name = campaign_names.get(pid, "Unknown")
+        name = maps.to_name.get(pid, "Unknown")
         topic_timestamps = state.get("post_timestamps", {}).get(pid, {})
 
         if not topic_timestamps:
@@ -1001,9 +993,9 @@ def _gather_leaderboard_stats(config: dict, state: dict, now: datetime):
     campaign_stats = []
     global_player_posts = {}
 
-    _, _, canonical_to_name, _ = build_topic_maps(config)
+    maps = build_topic_maps(config)
 
-    for pid, name in canonical_to_name.items():
+    for pid, name in maps.to_name.items():
         topic_timestamps = state.get("post_timestamps", {}).get(pid, {})
 
         gm_7d = 0
@@ -1213,26 +1205,23 @@ def check_recruitment_needs(config: dict, state: dict):
     now = datetime.now(timezone.utc)
 
 
-    _, canonical_to_chat, canonical_to_name, _ = build_topic_maps(config)
+    maps = build_topic_maps(config)
+    all_campaigns = helpers.players_by_campaign(state)
 
-    for pid in canonical_to_chat:
-        chat_topic_id = canonical_to_chat[pid]
-        name = canonical_to_name[pid]
+    for pid in maps.to_chat:
+        chat_topic_id = maps.to_chat[pid]
+        name = maps.to_name[pid]
 
         # Check interval
         if not helpers.interval_elapsed(state["last_recruitment_check"].get(pid), helpers.RECRUITMENT_INTERVAL_DAYS, now):
             continue
 
         # Count active players (excluding GM)
-        active = []
-        for player_key, player in state.get("players", {}).items():
-            if player.get("pbp_topic_id") == pid:
-                p_display = display_name(
-                    player["first_name"],
-                    player.get("username", ""),
-                    player.get("last_name", ""),
-                )
-                active.append(p_display)
+        campaign_players = all_campaigns.get(pid, [])
+        active = [
+            display_name(p["first_name"], p.get("username", ""), p.get("last_name", ""))
+            for p in campaign_players
+        ]
 
         player_count = len(active)
         needed = helpers.REQUIRED_PLAYERS - player_count

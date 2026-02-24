@@ -122,6 +122,15 @@ def trend_icon(recent: int, previous: int) -> str:
         return "➡️"
 
 
+def players_by_campaign(state: dict) -> dict:
+    """Group active players by canonical topic ID. Returns {pid: [player_dict, ...]}."""
+    campaigns = {}
+    for player_key, player in state.get("players", {}).items():
+        pid = player["pbp_topic_id"]
+        campaigns.setdefault(pid, []).append(player)
+    return campaigns
+
+
 RANK_ICONS = ["🥇", "🥈", "🥉"]
 
 
@@ -209,35 +218,39 @@ def calc_avg_gap_str(timestamps_iso: list[str]) -> str:
 # ------------------------------------------------------------------ #
 #  Topic mapping (multi-topic campaign support)
 # ------------------------------------------------------------------ #
-_topic_maps_cache = (None, None)  # (config_id, result)
+class TopicMaps:
+    """Lookup container for campaign topic ID mappings."""
+    __slots__ = ("to_canonical", "to_chat", "to_name", "all_pbp_ids")
+
+    def __init__(self, to_canonical, to_chat, to_name, all_pbp_ids):
+        self.to_canonical = to_canonical  # any pbp_topic_id (str) -> canonical pid
+        self.to_chat = to_chat            # canonical pid -> chat_topic_id
+        self.to_name = to_name            # canonical pid -> campaign name
+        self.all_pbp_ids = all_pbp_ids    # set of all pbp topic id strings
 
 
-def build_topic_maps(config: dict):
-    """Build lookup dicts from config's topic_pairs. Cached per config object.
+_topic_maps_cache = (None, None)  # (config_id, TopicMaps)
 
-    Returns:
-        topic_to_canonical: maps any pbp_topic_id (str) -> canonical pid (str, first in list)
-        canonical_to_chat: maps canonical pid -> chat_topic_id
-        canonical_to_name: maps canonical pid -> campaign name
-        all_pbp_ids: set of all pbp topic id strings
-    """
+
+def build_topic_maps(config: dict) -> TopicMaps:
+    """Build lookup dicts from config's topic_pairs. Cached per config object."""
     global _topic_maps_cache
     if _topic_maps_cache[0] == id(config):
         return _topic_maps_cache[1]
 
-    topic_to_canonical = {}
-    canonical_to_chat = {}
-    canonical_to_name = {}
+    to_canonical = {}
+    to_chat = {}
+    to_name = {}
     all_pbp_ids = set()
     for pair in config["topic_pairs"]:
         ids = pair["pbp_topic_ids"]
         canonical = str(ids[0])
-        canonical_to_chat[canonical] = pair["chat_topic_id"]
-        canonical_to_name[canonical] = pair["name"]
+        to_chat[canonical] = pair["chat_topic_id"]
+        to_name[canonical] = pair["name"]
         for tid in ids:
             tid_str = str(tid)
-            topic_to_canonical[tid_str] = canonical
+            to_canonical[tid_str] = canonical
             all_pbp_ids.add(tid_str)
-    result = (topic_to_canonical, canonical_to_chat, canonical_to_name, all_pbp_ids)
+    result = TopicMaps(to_canonical, to_chat, to_name, all_pbp_ids)
     _topic_maps_cache = (id(config), result)
     return result
