@@ -594,12 +594,7 @@ def player_of_the_week(config: dict, state: dict):
 
             # Sort and calculate gaps between sessions
             sessions.sort()
-            gaps = []
-            for i in range(1, len(sessions)):
-                gap_hours = (sessions[i] - sessions[i - 1]).total_seconds() / 3600
-                gaps.append(gap_hours)
-
-            avg_gap = sum(gaps) / len(gaps) if gaps else float("inf")
+            avg_gap = helpers.avg_gap_hours(sessions) or float("inf")
 
             # Find player name
             player_key = f"{pid}:{user_id}"
@@ -812,14 +807,8 @@ def archive_weekly_data(config: dict, state: dict):
                     player_counts[p_name] = player_counts.get(p_name, 0) + session_count
 
         # Calculate player avg gap
-        player_avg_gap = None
-        if len(player_post_times) >= 2:
-            player_post_times.sort()
-            gaps = []
-            for i in range(1, len(player_post_times)):
-                gap_h = (player_post_times[i] - player_post_times[i - 1]).total_seconds() / 3600
-                gaps.append(gap_h)
-            player_avg_gap = round(sum(gaps) / len(gaps), 1)
+        raw_gap = helpers.avg_gap_hours(sorted(player_post_times))
+        player_avg_gap = round(raw_gap, 1) if raw_gap is not None else None
 
         # Count active players
         active_players = len([
@@ -1005,39 +994,26 @@ def check_anniversaries(config: dict, state: dict):
 # ------------------------------------------------------------------ #
 #  Campaign Leaderboard (cross-campaign dashboard)
 # ------------------------------------------------------------------ #
-def post_campaign_leaderboard(config: dict, state: dict):
-    """Post a cross-campaign activity leaderboard to the ISSUES topic."""
-    group_id = config["group_id"]
-    leaderboard_topic = config.get("leaderboard_topic_id")
-    if not leaderboard_topic:
-        return
-
-    now = datetime.now(timezone.utc)
+def _gather_leaderboard_stats(config: dict, state: dict, now: datetime):
+    """Collect per-campaign stats and global player rankings for the leaderboard."""
     gm_ids = helpers.gm_id_set(config)
-
-
-    # Check interval
-    if not helpers.interval_elapsed(state.get("last_leaderboard"), helpers.LEADERBOARD_INTERVAL_DAYS, now):
-        return
-
     seven_days_ago = now - timedelta(days=7)
     three_days_ago = now - timedelta(days=3)
-    six_days_ago = now - timedelta(days=6)  # previous 3-day window
+    six_days_ago = now - timedelta(days=6)
 
     campaign_stats = []
-    global_player_posts = {}  # user display name -> {count, campaigns}
+    global_player_posts = {}
 
     _, _, canonical_to_name, _ = build_topic_maps(config)
 
     for pid, name in canonical_to_name.items():
         topic_timestamps = state.get("post_timestamps", {}).get(pid, {})
 
-        # Gather all posts in windows
         gm_7d = 0
         player_7d = 0
         posts_recent_3d = 0
         posts_prev_3d = 0
-        player_post_counts = {}  # user_id -> {name, username, count}
+        player_post_counts = {}
         all_post_times_7d = []
         player_post_times_7d = []
 
@@ -1049,26 +1025,19 @@ def post_campaign_leaderboard(config: dict, state: dict):
             p_last_name = player_info.get("last_name", "")
             p_username = player_info.get("username", "")
 
-            # Collect this user's 7d posts, then dedup into sessions
             user_7d_posts = []
             for ts in timestamps:
                 post_time = datetime.fromisoformat(ts)
-
-                # 7-day window
                 if post_time >= seven_days_ago:
                     user_7d_posts.append(post_time)
-
-                # 3-day trend windows (raw counts, no dedup needed)
                 if post_time >= three_days_ago:
                     posts_recent_3d += 1
                 elif post_time >= six_days_ago:
                     posts_prev_3d += 1
 
-            # Dedup this user's posts into sessions
             user_sessions = deduplicate_posts(user_7d_posts)
             session_count = len(user_sessions)
 
-            # Add deduped sessions to combined pools
             all_post_times_7d.extend(user_sessions)
             if is_gm:
                 gm_7d += session_count
@@ -1087,30 +1056,17 @@ def post_campaign_leaderboard(config: dict, state: dict):
 
         total_7d = gm_7d + player_7d
 
-        # Average response gap (all posts sorted chronologically)
-        avg_gap_str = "N/A"
-        if len(all_post_times_7d) >= 2:
-            all_post_times_7d.sort()
-            gaps = []
-            for i in range(1, len(all_post_times_7d)):
-                gap_h = (all_post_times_7d[i] - all_post_times_7d[i - 1]).total_seconds() / 3600
-                gaps.append(gap_h)
-            avg_gap = sum(gaps) / len(gaps)
-            avg_gap_str = f"{avg_gap:.1f}h"
+        # Average response gap (all posts)
+        all_post_times_7d.sort()
+        all_avg = helpers.avg_gap_hours(all_post_times_7d)
+        avg_gap_str = f"{all_avg:.1f}h" if all_avg is not None else "N/A"
 
         # Player-only average gap
-        player_avg_gap = None
-        player_avg_gap_str = "N/A"
-        if len(player_post_times_7d) >= 2:
-            player_post_times_7d.sort()
-            p_gaps = []
-            for i in range(1, len(player_post_times_7d)):
-                gap_h = (player_post_times_7d[i] - player_post_times_7d[i - 1]).total_seconds() / 3600
-                p_gaps.append(gap_h)
-            player_avg_gap = sum(p_gaps) / len(p_gaps)
-            player_avg_gap_str = f"{player_avg_gap:.1f}h"
+        player_post_times_7d.sort()
+        player_avg_gap = helpers.avg_gap_hours(player_post_times_7d)
+        player_avg_gap_str = f"{player_avg_gap:.1f}h" if player_avg_gap is not None else "N/A"
 
-        # Days since last post
+        # Last post
         last_post_time = None
         for uid, timestamps in topic_timestamps.items():
             for ts in timestamps:
@@ -1119,18 +1075,14 @@ def post_campaign_leaderboard(config: dict, state: dict):
                     last_post_time = pt
 
         last_post_str, days_since_last = helpers.fmt_brief_relative(now, last_post_time)
-
-        # 3-day trend
         trend = helpers.trend_icon(posts_recent_3d, posts_prev_3d)
 
-        # All players by post count
         top_players = sorted(
             player_post_counts.values(),
             key=lambda p: p["count"],
             reverse=True,
         )
 
-        # Accumulate into global player tracker
         for uid, pdata in player_post_counts.items():
             if uid not in global_player_posts:
                 full = f"{pdata['name']} {pdata.get('last_name', '')}".strip()
@@ -1157,14 +1109,14 @@ def post_campaign_leaderboard(config: dict, state: dict):
             "top_players": top_players,
         })
 
-    if not campaign_stats:
-        print("No campaign data for leaderboard")
-        return
+    return campaign_stats, global_player_posts
 
-    # Sort by player posts descending
+
+def _format_leaderboard(campaign_stats: list, global_player_posts: dict, now: datetime) -> str:
+    """Format the leaderboard message from collected stats."""
+    seven_days_ago = now - timedelta(days=7)
+
     campaign_stats.sort(key=lambda c: c["player_7d"], reverse=True)
-
-    # Split into active and dead (based on any posts including GM)
     active = [c for c in campaign_stats if c["total_7d"] > 0]
     dead = [c for c in campaign_stats if c["total_7d"] == 0]
 
@@ -1202,17 +1154,13 @@ def post_campaign_leaderboard(config: dict, state: dict):
         for c in dead:
             lines.append(f"💀 [{c['name']}] (last post: {c['last_post_str']})")
 
-    # Player-only avg gap ranking
-    gap_ranked = [
-        c for c in campaign_stats if c["player_avg_gap"] is not None
-    ]
+    gap_ranked = [c for c in campaign_stats if c["player_avg_gap"] is not None]
     if gap_ranked:
         gap_ranked.sort(key=lambda c: c["player_avg_gap"])
         lines.append("\n━━━━━━━━━━━━━━━━\n\n⏱ Fastest player response gaps:")
         for i, c in enumerate(gap_ranked):
             lines.append(f"{helpers.rank_icon(i)} {c['name']}: {c['player_avg_gap_str']}")
 
-    # Overall top players (most sessions across all campaigns)
     if global_player_posts:
         lines.append("\n━━━━━━━━━━━━━━━━")
         top_global = sorted(
@@ -1231,9 +1179,30 @@ def post_campaign_leaderboard(config: dict, state: dict):
             player_blocks.append(block)
         lines.append("\n⭐ Top Players of the Week:\n\n" + "\n\n".join(player_blocks))
 
-    message = "\n".join(lines)
+    return "\n".join(lines)
 
-    print(f"Posting campaign leaderboard to ISSUES topic")
+
+def post_campaign_leaderboard(config: dict, state: dict):
+    """Post a cross-campaign activity leaderboard to the ISSUES topic."""
+    group_id = config["group_id"]
+    leaderboard_topic = config.get("leaderboard_topic_id")
+    if not leaderboard_topic:
+        return
+
+    now = datetime.now(timezone.utc)
+
+    if not helpers.interval_elapsed(state.get("last_leaderboard"), helpers.LEADERBOARD_INTERVAL_DAYS, now):
+        return
+
+    campaign_stats, global_player_posts = _gather_leaderboard_stats(config, state, now)
+
+    if not campaign_stats:
+        print("No campaign data for leaderboard")
+        return
+
+    message = _format_leaderboard(campaign_stats, global_player_posts, now)
+
+    print(f"Posting campaign leaderboard ({len(campaign_stats)} campaigns)")
     if tg.send_message(group_id, leaderboard_topic, message):
         state["last_leaderboard"] = now.isoformat()
 

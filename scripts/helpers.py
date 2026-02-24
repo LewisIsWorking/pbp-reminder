@@ -81,6 +81,15 @@ def interval_elapsed(last_iso: str | None, interval_days: float, now: datetime) 
     return (now - datetime.fromisoformat(last_iso)).total_seconds() / 86400 >= interval_days
 
 
+def avg_gap_hours(sorted_times: list[datetime]) -> float | None:
+    """Return average gap in hours between sorted datetimes, or None if < 2 entries."""
+    if len(sorted_times) < 2:
+        return None
+    gaps = [(sorted_times[i] - sorted_times[i - 1]).total_seconds() / 3600
+            for i in range(1, len(sorted_times))]
+    return sum(gaps) / len(gaps)
+
+
 def fmt_brief_relative(now: datetime, then: datetime | None) -> tuple[str, float]:
     """Short relative time (no date). Returns (string, days_since).
     
