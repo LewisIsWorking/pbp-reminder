@@ -1,0 +1,33 @@
+{
+    "group_id": -1001234567890,
+    "alert_after_hours": 4,
+    "gm_user_ids": [123456789],
+    "leaderboard_topic_id": null,
+    "topic_pairs": [
+        {
+            "name": "My Campaign",
+            "chat_topic_id": 11111,
+            "pbp_topic_ids": [22222],
+            "created": "2025-01-15"
+        },
+        {
+            "name": "Second Campaign",
+            "chat_topic_id": 33333,
+            "pbp_topic_ids": [44444, 55555],
+            "created": "2024-06-01"
+        }
+    ],
+    "settings": {
+        "roster_interval_days": 3,
+        "potw_interval_days": 7,
+        "potw_min_posts": 5,
+        "pace_interval_days": 7,
+        "leaderboard_interval_days": 3,
+        "combat_ping_hours": 4,
+        "recruitment_interval_days": 14,
+        "required_players": 6,
+        "post_session_minutes": 10,
+        "player_warn_weeks": [1, 2, 3],
+        "player_remove_weeks": 4
+    }
+}
