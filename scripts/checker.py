@@ -927,9 +927,6 @@ def _gather_leaderboard_stats(config: dict, state: dict, now: datetime) -> tuple
         for uid, timestamps in topic_timestamps.items():
             is_gm = uid in gm_ids
             player_info = helpers.get_player(state, pid, uid)
-            p_name = player_info.get("first_name", "Unknown")
-            p_last_name = player_info.get("last_name", "")
-            p_username = player_info.get("username", "")
 
             user_7d_posts = timestamps_in_window(timestamps, seven_days_ago)
             posts_recent_3d += len(timestamps_in_window(timestamps, three_days_ago))
@@ -945,10 +942,10 @@ def _gather_leaderboard_stats(config: dict, state: dict, now: datetime) -> tuple
                 player_7d += session_count
                 player_post_times_7d.extend(user_sessions)
                 if session_count > 0:
+                    full = f"{player_info.get('first_name', 'Unknown')} {player_info.get('last_name', '')}".strip()
                     player_post_counts.setdefault(uid, {
-                        "name": p_name,
-                        "last_name": p_last_name,
-                        "username": p_username,
+                        "full_name": full,
+                        "username": player_info.get("username", ""),
                         "count": 0,
                     })
                     player_post_counts[uid]["count"] += session_count
@@ -979,9 +976,8 @@ def _gather_leaderboard_stats(config: dict, state: dict, now: datetime) -> tuple
         )
 
         for uid, pdata in player_post_counts.items():
-            full = f"{pdata['name']} {pdata.get('last_name', '')}".strip()
             entry = global_player_posts.setdefault(uid, {
-                "full_name": full,
+                "full_name": pdata["full_name"],
                 "username": pdata.get("username", ""),
                 "count": 0,
                 "campaigns": 0,
@@ -1033,9 +1029,8 @@ def _format_leaderboard(campaign_stats: list, global_player_posts: dict, now: da
         player_blocks = []
         for j, p in enumerate(c["top_players"]):
             medal = helpers.rank_icon(j)
-            full = f"{p['name']} {p.get('last_name', '')}".strip()
+            block = f"{medal} {p['full_name']}\n"
             uname = p.get("username", "")
-            block = f"{medal} {full}\n"
             if uname:
                 block += f"- @{uname}\n"
             block += f"- {posts_str(p['count'])}"
