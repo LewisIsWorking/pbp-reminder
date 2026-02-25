@@ -82,7 +82,7 @@ def interval_elapsed(last_iso: str | None, interval_days: float, now: datetime) 
     """Return True if enough time has passed since last_iso, or if last_iso is None."""
     if not last_iso:
         return True
-    return (now - datetime.fromisoformat(last_iso)).total_seconds() / 86400 >= interval_days
+    return days_since(now, datetime.fromisoformat(last_iso)) >= interval_days
 
 
 def timestamps_in_window(raw_timestamps: list[str], after: datetime,
@@ -115,15 +115,15 @@ def fmt_brief_relative(now: datetime, then: datetime | None) -> tuple[str, float
     """
     if not then:
         return "never", 999.0
-    days = (now - then).total_seconds() / 86400
-    if days < 0.04:  # ~1 hour
-        return "today", days
-    elif days < 1:
-        return f"{int(days * 24)}h ago", days
-    elif days < 2:
-        return "yesterday", days
+    d = days_since(now, then)
+    if d < 0.04:  # ~1 hour
+        return "today", d
+    elif d < 1:
+        return f"{int(d * 24)}h ago", d
+    elif d < 2:
+        return "yesterday", d
     else:
-        return f"{int(days)}d ago", days
+        return f"{int(d)}d ago", d
 
 
 def trend_icon(recent: int, previous: int) -> str:
@@ -225,14 +225,14 @@ def posts_str(n: int) -> str:
 
 def fmt_relative_date(now: datetime, then: datetime) -> str:
     """Format as relative + absolute, e.g. '5d ago (2026-02-10)'."""
-    days_ago = int((now - then).total_seconds() / 86400)
+    d = int(days_since(now, then))
     date_str = fmt_date(then)
-    if days_ago == 0:
+    if d == 0:
         return f"today ({date_str})"
-    elif days_ago == 1:
+    elif d == 1:
         return f"yesterday ({date_str})"
     else:
-        return f"{days_ago}d ago ({date_str})"
+        return f"{d}d ago ({date_str})"
 
 
 # ------------------------------------------------------------------ #
@@ -257,13 +257,9 @@ def calc_avg_gap_str(timestamps_iso: list[str]) -> str:
     """Calculate deduped average gap from ISO timestamp strings. Returns formatted string."""
     all_posts = sorted(datetime.fromisoformat(ts) for ts in timestamps_iso)
     sessions = deduplicate_posts(all_posts)
-    if len(sessions) < 2:
+    avg = avg_gap_hours(sessions)
+    if avg is None:
         return "N/A"
-    gaps = []
-    for i in range(1, len(sessions)):
-        gap_h = (sessions[i] - sessions[i - 1]).total_seconds() / 3600
-        gaps.append(gap_h)
-    avg = sum(gaps) / len(gaps)
     if avg < 1:
         return f"{avg * 60:.0f} minutes"
     return f"{avg:.1f} hours"
