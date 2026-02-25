@@ -14,32 +14,45 @@ def init(token: str) -> None:
 
 def _post(method: str, payload: dict, label: str = "request") -> dict | None:
     """POST to Telegram API, return parsed result on success or None on failure."""
-    resp = requests.post(f"{TELEGRAM_API}/{method}", json=payload)
-    if resp.status_code == 200:
-        data = resp.json()
-        if data.get("ok"):
-            return data.get("result")
-    print(f"Telegram {label} failed: {resp.text}")
+    try:
+        resp = requests.post(f"{TELEGRAM_API}/{method}", json=payload, timeout=30)
+        if resp.status_code == 200:
+            data = resp.json()
+            if data.get("ok"):
+                return data.get("result")
+        print(f"Telegram {label} failed: {resp.text[:200]}")
+    except requests.RequestException as e:
+        print(f"Telegram {label} network error: {e}")
     return None
 
 
 def get_updates(offset: int) -> list:
     """Fetch new messages and callbacks from Telegram Bot API."""
-    resp = requests.get(
-        f"{TELEGRAM_API}/getUpdates",
-        params={
-            "offset": offset,
-            "limit": 100,
-            "timeout": 5,
-            "allowed_updates": json.dumps(["message", "callback_query"]),
-        },
-    )
+    try:
+        resp = requests.get(
+            f"{TELEGRAM_API}/getUpdates",
+            params={
+                "offset": offset,
+                "limit": 100,
+                "timeout": 5,
+                "allowed_updates": json.dumps(["message", "callback_query"]),
+            },
+            timeout=30,
+        )
+    except requests.RequestException as e:
+        print(f"Error fetching updates: {e}")
+        return []
 
     if resp.status_code != 200:
         print(f"Error fetching updates: HTTP {resp.status_code}")
         return []
 
-    data = resp.json()
+    try:
+        data = resp.json()
+    except ValueError:
+        print(f"Error parsing updates response: {resp.text[:200]}")
+        return []
+
     if not data.get("ok"):
         print(f"Telegram API error: {data}")
         return []

@@ -211,6 +211,13 @@ def player_mention(player: dict) -> str:
     )
 
 
+def player_full_name(player: dict) -> str:
+    """Extract 'First Last' from a player dict, without @username."""
+    first = player.get("first_name", "Unknown")
+    last = player.get("last_name", "")
+    return f"{first} {last}".strip() if last else first
+
+
 def posts_str(n: int) -> str:
     """Return '1 post' or 'N posts'."""
     return f"{n} post" if n == 1 else f"{n} posts"

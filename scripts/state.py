@@ -39,13 +39,18 @@ def load() -> dict:
         print("Warning: No GIST_ID or GIST_TOKEN set, starting with empty state")
         return dict(DEFAULT_STATE)
 
-    resp = requests.get(
-        GIST_API,
-        headers={
-            "Authorization": f"token {GIST_TOKEN}",
-            "Accept": "application/vnd.github.v3+json",
-        },
-    )
+    try:
+        resp = requests.get(
+            GIST_API,
+            headers={
+                "Authorization": f"token {GIST_TOKEN}",
+                "Accept": "application/vnd.github.v3+json",
+            },
+            timeout=30,
+        )
+    except requests.RequestException as e:
+        print(f"Warning: Could not connect to gist ({e}), starting fresh")
+        return dict(DEFAULT_STATE)
 
     if resp.status_code != 200:
         print(f"Warning: Could not load gist (HTTP {resp.status_code}), starting fresh")
@@ -72,20 +77,25 @@ def save(state: dict) -> None:
         print("Warning: No GIST_ID or GIST_TOKEN set, cannot save state")
         return
 
-    resp = requests.patch(
-        GIST_API,
-        headers={
-            "Authorization": f"token {GIST_TOKEN}",
-            "Accept": "application/vnd.github.v3+json",
-        },
-        json={
-            "files": {
-                STATE_FILENAME: {
-                    "content": json.dumps(state, indent=2)
+    try:
+        resp = requests.patch(
+            GIST_API,
+            headers={
+                "Authorization": f"token {GIST_TOKEN}",
+                "Accept": "application/vnd.github.v3+json",
+            },
+            json={
+                "files": {
+                    STATE_FILENAME: {
+                        "content": json.dumps(state, indent=2)
+                    }
                 }
-            }
-        },
-    )
+            },
+            timeout=30,
+        )
+    except requests.RequestException as e:
+        print(f"Warning: Failed to save state ({e})")
+        return
 
     if resp.status_code == 200:
         print("State saved to gist")

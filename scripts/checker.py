@@ -100,9 +100,9 @@ def expire_pending_boons(config: dict, state: dict) -> None:
     for topic_id in list(pending.keys()):
         entry = pending[topic_id]
         posted_at = datetime.fromisoformat(entry["posted_at"])
-        hours_since = helpers.hours_since(now, posted_at)
+        elapsed = helpers.hours_since(now, posted_at)
 
-        if hours_since >= 48:
+        if elapsed >= 48:
             new_text = _format_boon_result(entry["boons"], 0, entry["base_message"], "Boon (auto-selected)")
 
             tg.edit_message(group_id, entry["message_id"], new_text, parse_mode="HTML")
@@ -240,7 +240,7 @@ def process_updates(updates: list, config: dict, state: dict) -> int:
         # ---- Combat commands and tracking ----
         _handle_combat_message(
             text, user_id, gm_ids, pid, campaign_name,
-            now_iso, config["group_id"], thread_id, state,
+            now_iso, group_id, thread_id, state,
         )
 
         # Update topic-level tracking (for 4-hour alerts)
@@ -328,8 +328,7 @@ def check_and_alert(config: dict, state: dict) -> None:
         count = state.get("message_counts", {}).get(pid, {}).get(last_user_id, 0)
         count_str = f" ({count} total posts)" if count > 0 else ""
 
-        last_msg_time = datetime.fromisoformat(topic_state["last_message_time"])
-        last_date = fmt_date(last_msg_time)
+        last_date = fmt_date(last_time)
 
         message = (
             f"No new posts in {name} PBP for {time_str}.\n"
@@ -368,14 +367,14 @@ def check_player_activity(config: dict, state: dict) -> None:
             continue
 
         last_post = datetime.fromisoformat(player["last_post_time"])
-        elapsed_weeks = helpers.days_since(now, last_post) / 7
-        current_week = int(elapsed_weeks)
+        elapsed_days = helpers.days_since(now, last_post)
+        current_week = int(elapsed_days / 7)
         last_warned = player.get("last_warned_week", 0)
 
         first_name = player["first_name"]
         campaign = player["campaign_name"]
         mention = helpers.player_mention(player)
-        days_inactive = int(helpers.days_since(now, last_post))
+        days_inactive = int(elapsed_days)
         last_date = fmt_date(last_post)
 
         # 4+ weeks: remove
@@ -482,7 +481,7 @@ def post_roster_summary(config: dict, state: dict) -> None:
             raw_ts = topic_timestamps.get(uid, [])
             if not raw_ts:
                 continue
-            full = f"{player['first_name']} {player.get('last_name', '')}".strip()
+            full = helpers.player_full_name(player)
             stats = _roster_user_stats(raw_ts, counts.get(uid, 0), now)
             lines.append(_roster_block(full, player.get("username", ""), stats))
 
@@ -544,7 +543,7 @@ def player_of_the_week(config: dict, state: dict) -> None:
     try:
         with open(helpers.BOONS_PATH) as f:
             boons = json.load(f)
-    except Exception as e:
+    except (FileNotFoundError, json.JSONDecodeError) as e:
         print(f"Warning: Could not load boons: {e}")
         boons = ["Something mildly beneficial happens to you today."]
 
@@ -654,7 +653,7 @@ def check_combat_turns(config: dict, state: dict) -> None:
             continue
 
         missing_str = ", ".join(missing)
-        phase_date = fmt_date(datetime.fromisoformat(combat["phase_started_at"]))
+        phase_date = fmt_date(phase_start)
         message = (
             f"Round {round_num} - waiting on: {missing_str}\n"
             f"({hours_int}h since players' phase started on {phase_date})"
@@ -901,7 +900,7 @@ def check_anniversaries(config: dict, state: dict) -> None:
 # ------------------------------------------------------------------ #
 #  Campaign Leaderboard (cross-campaign dashboard)
 # ------------------------------------------------------------------ #
-def _gather_leaderboard_stats(config: dict, state: dict, now: datetime) -> tuple:
+def _gather_leaderboard_stats(config: dict, state: dict, now: datetime) -> tuple[list, dict]:
     """Collect per-campaign stats and global player rankings for the leaderboard."""
     gm_ids = helpers.gm_id_set(config)
     seven_days_ago = now - timedelta(days=7)
@@ -942,7 +941,7 @@ def _gather_leaderboard_stats(config: dict, state: dict, now: datetime) -> tuple
                 player_7d += session_count
                 player_post_times_7d.extend(user_sessions)
                 if session_count > 0:
-                    full = f"{player_info.get('first_name', 'Unknown')} {player_info.get('last_name', '')}".strip()
+                    full = helpers.player_full_name(player_info)
                     player_post_counts.setdefault(uid, {
                         "full_name": full,
                         "username": player_info.get("username", ""),
@@ -1150,6 +1149,28 @@ def check_recruitment_needs(config: dict, state: dict) -> None:
 # ------------------------------------------------------------------ #
 #  Main
 # ------------------------------------------------------------------ #
+def _run_checks(config: dict, bot_state: dict) -> None:
+    """Run all scheduled checks, isolating failures so one crash doesn't block others."""
+    checks = [
+        ("Topic alerts", check_and_alert),
+        ("Player activity", check_player_activity),
+        ("Roster summary", post_roster_summary),
+        ("Player of the Week", player_of_the_week),
+        ("Boon expiry", expire_pending_boons),
+        ("Pace report", post_pace_report),
+        ("Anniversaries", check_anniversaries),
+        ("Combat pings", check_combat_turns),
+        ("Leaderboard", post_campaign_leaderboard),
+        ("Recruitment", check_recruitment_needs),
+        ("Archive", archive_weekly_data),
+    ]
+    for label, func in checks:
+        try:
+            func(config, bot_state)
+        except Exception as e:
+            print(f"Error in {label}: {e}")
+
+
 def main() -> None:
     """Entry point: load config/state, process updates, run all scheduled checks, save."""
     telegram_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
@@ -1180,43 +1201,13 @@ def main() -> None:
     if updates:
         bot_state["offset"] = process_updates(updates, config, bot_state)
 
-    # Topic inactivity alerts (12-hour)
-    check_and_alert(config, bot_state)
+    # Run all scheduled checks (error-isolated)
+    _run_checks(config, bot_state)
 
-    # Player inactivity checks (weekly)
-    check_player_activity(config, bot_state)
-
-    # Party roster summary (every 3 days)
-    post_roster_summary(config, bot_state)
-
-    # Player of the Week (weekly)
-    player_of_the_week(config, bot_state)
-
-    # Expire unclaimed boon choices (48h)
-    expire_pending_boons(config, bot_state)
-
-    # Weekly pace report
-    post_pace_report(config, bot_state)
-
-    # Campaign anniversaries
-    check_anniversaries(config, bot_state)
-
-    # Combat turn pinger
-    check_combat_turns(config, bot_state)
-
-    # Campaign leaderboard (every 3 days, ISSUES topic)
-    post_campaign_leaderboard(config, bot_state)
-
-    # Recruitment notices (every 2 weeks, campaigns under 6 players)
-    check_recruitment_needs(config, bot_state)
-
-    # Archive weekly summaries (before pruning timestamps)
-    archive_weekly_data(config, bot_state)
-
-    # Prune old timestamps
+    # Prune old timestamps (lightweight, unlikely to fail)
     cleanup_timestamps(bot_state)
 
-    # Save
+    # Always save state, even if checks failed
     state_store.save(bot_state)
     print("Done")
 
