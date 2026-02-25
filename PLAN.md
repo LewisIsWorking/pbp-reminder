@@ -11,7 +11,7 @@
 - Check: `leaderboard_topic_id` doesn't collide with any campaign topic
 - Check: settings values are correct types (ints positive, lists non-empty)
 - Call from main() before any processing; print warnings, exit on fatal errors
-- **Status: TODO**
+- **Status: DONE**
 
 ## 2. /help Command in Telegram
 **Why:** Players and GMs have no way to discover what the bot does or what commands exist.
@@ -21,7 +21,7 @@
 - Reply in the same topic with a summary of bot features and GM commands
 - Respond to `/help` from anyone, `/round` and `/endcombat` from GMs only (already the case)
 - Keep message concise: feature list + command reference + intervals
-- **Status: TODO**
+- **Status: DONE**
 
 ## 3. Per-Campaign Feature Toggles
 **Why:** Some campaigns may not want recruitment notices or POTW (e.g. Hopeful End-Times with 1 player).
@@ -32,7 +32,7 @@
 - Add `helpers.feature_enabled(config, pid, feature_name) -> bool`
 - Check at the top of each per-campaign loop iteration
 - Document in README config reference
-- **Status: TODO**
+- **Status: DONE**
 
 ## 4. Tests for checker.py
 **Why:** Only helpers.py is tested (31 tests). Core logic in checker.py has zero coverage.
@@ -53,7 +53,7 @@
 - `check_player_activity` - warning escalation
 
 **Approach:** Simple mock for tg module, real state dicts, test pure functions first.
-- **Status: TODO**
+- **Status: DONE**
 
 ## 5. Archive Viewer (HTML Dashboard)
 **Why:** weekly_archive.json has great data but is unreadable raw. A dashboard makes trends visible.
@@ -65,7 +65,7 @@
 - Table: sortable campaign comparison for latest week
 - Use Chart.js from CDN (lightweight, no build)
 - Place in `docs/index.html` for GitHub Pages compatibility
-- **Status: TODO**
+- **Status: DONE**
 
 ---
 

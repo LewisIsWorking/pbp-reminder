@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PBP Campaign Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Source+Sans+3:wght@400;600&display=swap');
+
+  :root {
+    --bg: #0f1119;
+    --surface: #1a1d2e;
+    --surface-2: #232740;
+    --border: #2e3350;
+    --text: #c8cad8;
+    --text-dim: #7a7e96;
+    --accent: #d4a953;
+    --accent-dim: #b8913a;
+    --gm: #6c8fd4;
+    --player: #d46c8f;
+    --green: #6cd4a0;
+    --red: #d46c6c;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Source Sans 3', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
+
+  header {
+    text-align: center;
+    padding: 2.5rem 1rem 1.5rem;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, #161929 0%, var(--bg) 100%);
+  }
+
+  header h1 {
+    font-family: 'Cinzel', serif;
+    font-weight: 700;
+    font-size: 1.8rem;
+    color: var(--accent);
+    letter-spacing: 0.08em;
+  }
+
+  header p {
+    color: var(--text-dim);
+    margin-top: 0.4rem;
+    font-size: 0.95rem;
+  }
+
+  .container {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 1.5rem 1rem;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+
+  @media (max-width: 768px) {
+    .grid { grid-template-columns: 1fr; }
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.25rem;
+  }
+
+  .card.full { grid-column: 1 / -1; }
+
+  .card h2 {
+    font-family: 'Cinzel', serif;
+    font-size: 1rem;
+    color: var(--accent);
+    margin-bottom: 1rem;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+  }
+
+  .chart-wrap {
+    position: relative;
+    height: 280px;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+  }
+
+  thead th {
+    text-align: left;
+    padding: 0.5rem 0.75rem;
+    border-bottom: 2px solid var(--border);
+    color: var(--text-dim);
+    font-weight: 600;
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+  }
+
+  thead th:hover { color: var(--accent); }
+  thead th.sorted { color: var(--accent); }
+  thead th .arrow { font-size: 0.7rem; margin-left: 0.3rem; }
+
+  tbody td {
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  tbody tr:hover { background: var(--surface-2); }
+
+  .campaign-name { font-weight: 600; color: var(--text); }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .trend-up { color: var(--green); }
+  .trend-down { color: var(--red); }
+  .trend-flat { color: var(--text-dim); }
+
+  #loading {
+    text-align: center;
+    padding: 4rem;
+    color: var(--text-dim);
+    font-size: 1.1rem;
+  }
+
+  #error {
+    text-align: center;
+    padding: 2rem;
+    color: var(--red);
+    display: none;
+  }
+
+  .legend-note {
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    margin-top: 0.5rem;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>PBP Campaign Dashboard</h1>
+  <p id="subtitle">Loading...</p>
+</header>
+
+<div class="container">
+  <div id="loading">Loading archive data...</div>
+  <div id="error">Could not load weekly_archive.json. Make sure the file exists in the data/ directory.</div>
+
+  <div id="dashboard" style="display:none;">
+    <div class="grid">
+      <div class="card full">
+        <h2>Total Posts per Week</h2>
+        <div class="chart-wrap"><canvas id="postsChart"></canvas></div>
+      </div>
+
+      <div class="card">
+        <h2>GM vs Player Posts (Latest Week)</h2>
+        <div class="chart-wrap"><canvas id="splitChart"></canvas></div>
+      </div>
+
+      <div class="card">
+        <h2>Player Response Gap Trend</h2>
+        <div class="chart-wrap"><canvas id="gapChart"></canvas></div>
+        <div class="legend-note">Lower is better (hours between player posts)</div>
+      </div>
+
+      <div class="card full">
+        <h2>Campaign Comparison</h2>
+        <div style="overflow-x:auto;">
+          <table id="compTable">
+            <thead><tr>
+              <th data-key="campaign">Campaign</th>
+              <th data-key="total_posts" class="num">Total</th>
+              <th data-key="player_posts" class="num">Player</th>
+              <th data-key="gm_posts" class="num">GM</th>
+              <th data-key="player_avg_gap_h" class="num">Avg Gap (h)</th>
+              <th data-key="active_players" class="num">Players</th>
+              <th data-key="trend" class="num">Trend</th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const CAMPAIGN_COLORS = [
+  '#d4a953', '#6c8fd4', '#d46c8f', '#6cd4a0',
+  '#d4996c', '#8f6cd4', '#d4d46c', '#6cd4d4',
+  '#c46cb8', '#7ed46c',
+];
+
+const CHART_DEFAULTS = {
+  responsive: true,
+  maintainAspectRatio: false,
+  plugins: {
+    legend: { labels: { color: '#c8cad8', font: { family: "'Source Sans 3'" } } },
+  },
+  scales: {
+    x: { ticks: { color: '#7a7e96' }, grid: { color: '#2e335022' } },
+    y: { ticks: { color: '#7a7e96' }, grid: { color: '#2e335044' }, beginAtZero: true },
+  },
+};
+
+async function init() {
+  let archive;
+  try {
+    const resp = await fetch('../data/weekly_archive.json');
+    if (!resp.ok) throw new Error(resp.status);
+    archive = await resp.json();
+  } catch (e) {
+    // Try alternate path (if served from repo root)
+    try {
+      const resp2 = await fetch('data/weekly_archive.json');
+      if (!resp2.ok) throw new Error(resp2.status);
+      archive = await resp2.json();
+    } catch (e2) {
+      document.getElementById('loading').style.display = 'none';
+      document.getElementById('error').style.display = 'block';
+      return;
+    }
+  }
+
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('dashboard').style.display = 'block';
+
+  // Parse into structured data
+  const entries = Object.values(archive);
+  const weeks = [...new Set(entries.map(e => e.week))].sort();
+  const campaigns = [...new Set(entries.map(e => e.campaign))].sort();
+  const latestWeek = weeks[weeks.length - 1];
+  const prevWeek = weeks.length > 1 ? weeks[weeks.length - 2] : null;
+
+  document.getElementById('subtitle').textContent =
+    `${campaigns.length} campaigns, ${weeks.length} week${weeks.length !== 1 ? 's' : ''} of data (latest: ${latestWeek})`;
+
+  const byCampaignWeek = {};
+  entries.forEach(e => { byCampaignWeek[`${e.campaign}:${e.week}`] = e; });
+
+  // Chart 1: Total posts per week (line)
+  const postsDatasets = campaigns.map((c, i) => ({
+    label: c,
+    data: weeks.map(w => (byCampaignWeek[`${c}:${w}`] || {}).total_posts || 0),
+    borderColor: CAMPAIGN_COLORS[i % CAMPAIGN_COLORS.length],
+    backgroundColor: CAMPAIGN_COLORS[i % CAMPAIGN_COLORS.length] + '33',
+    tension: 0.3,
+    pointRadius: 4,
+    pointHoverRadius: 6,
+  }));
+
+  new Chart(document.getElementById('postsChart'), {
+    type: 'line',
+    data: { labels: weeks, datasets: postsDatasets },
+    options: { ...CHART_DEFAULTS },
+  });
+
+  // Chart 2: GM vs Player stacked bar (latest week)
+  const latestData = campaigns.map(c => byCampaignWeek[`${c}:${latestWeek}`] || {});
+  const shortNames = campaigns.map(c => c.length > 14 ? c.slice(0, 12) + '..' : c);
+
+  new Chart(document.getElementById('splitChart'), {
+    type: 'bar',
+    data: {
+      labels: shortNames,
+      datasets: [
+        {
+          label: 'Player Posts',
+          data: latestData.map(d => d.player_posts || 0),
+          backgroundColor: '#d46c8f',
+        },
+        {
+          label: 'GM Posts',
+          data: latestData.map(d => d.gm_posts || 0),
+          backgroundColor: '#6c8fd4',
+        },
+      ],
+    },
+    options: {
+      ...CHART_DEFAULTS,
+      plugins: { ...CHART_DEFAULTS.plugins, legend: { ...CHART_DEFAULTS.plugins.legend } },
+      scales: {
+        ...CHART_DEFAULTS.scales,
+        x: { ...CHART_DEFAULTS.scales.x, stacked: true },
+        y: { ...CHART_DEFAULTS.scales.y, stacked: true },
+      },
+    },
+  });
+
+  // Chart 3: Player avg gap trend (line)
+  const gapDatasets = campaigns
+    .filter(c => weeks.some(w => {
+      const d = byCampaignWeek[`${c}:${w}`];
+      return d && d.player_avg_gap_h != null;
+    }))
+    .map((c, i) => ({
+      label: c,
+      data: weeks.map(w => {
+        const d = byCampaignWeek[`${c}:${w}`];
+        return d && d.player_avg_gap_h != null ? d.player_avg_gap_h : null;
+      }),
+      borderColor: CAMPAIGN_COLORS[i % CAMPAIGN_COLORS.length],
+      tension: 0.3,
+      pointRadius: 4,
+      spanGaps: true,
+    }));
+
+  new Chart(document.getElementById('gapChart'), {
+    type: 'line',
+    data: { labels: weeks, datasets: gapDatasets },
+    options: { ...CHART_DEFAULTS },
+  });
+
+  // Table: campaign comparison for latest week
+  const tableData = campaigns.map(c => {
+    const latest = byCampaignWeek[`${c}:${latestWeek}`] || {};
+    const prev = prevWeek ? (byCampaignWeek[`${c}:${prevWeek}`] || {}) : {};
+    const latestTotal = latest.total_posts || 0;
+    const prevTotal = prev.total_posts || 0;
+    let trend = 0;
+    if (prevTotal > 0) trend = ((latestTotal - prevTotal) / prevTotal * 100);
+    else if (latestTotal > 0) trend = 100;
+
+    return {
+      campaign: c,
+      total_posts: latestTotal,
+      player_posts: latest.player_posts || 0,
+      gm_posts: latest.gm_posts || 0,
+      player_avg_gap_h: latest.player_avg_gap_h,
+      active_players: latest.active_players || 0,
+      trend: trend,
+    };
+  });
+
+  const tbody = document.querySelector('#compTable tbody');
+  let sortKey = 'total_posts';
+  let sortAsc = false;
+
+  function renderTable() {
+    tableData.sort((a, b) => {
+      let va = a[sortKey], vb = b[sortKey];
+      if (va == null) va = -Infinity;
+      if (vb == null) vb = -Infinity;
+      if (typeof va === 'string') return sortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
+      return sortAsc ? va - vb : vb - va;
+    });
+
+    tbody.innerHTML = tableData.map(row => {
+      const gap = row.player_avg_gap_h != null ? row.player_avg_gap_h.toFixed(1) : 'N/A';
+      let trendClass = 'trend-flat';
+      let trendText = '--';
+      if (row.trend > 10) { trendClass = 'trend-up'; trendText = '+' + row.trend.toFixed(0) + '%'; }
+      else if (row.trend < -10) { trendClass = 'trend-down'; trendText = row.trend.toFixed(0) + '%'; }
+      else if (row.trend !== 0) { trendText = (row.trend >= 0 ? '+' : '') + row.trend.toFixed(0) + '%'; }
+
+      return `<tr>
+        <td class="campaign-name">${row.campaign}</td>
+        <td class="num">${row.total_posts}</td>
+        <td class="num">${row.player_posts}</td>
+        <td class="num">${row.gm_posts}</td>
+        <td class="num">${gap}</td>
+        <td class="num">${row.active_players}</td>
+        <td class="num ${trendClass}">${trendText}</td>
+      </tr>`;
+    }).join('');
+
+    // Update header arrows
+    document.querySelectorAll('#compTable thead th').forEach(th => {
+      const key = th.dataset.key;
+      th.classList.toggle('sorted', key === sortKey);
+      const existing = th.querySelector('.arrow');
+      if (existing) existing.remove();
+      if (key === sortKey) {
+        const arrow = document.createElement('span');
+        arrow.className = 'arrow';
+        arrow.textContent = sortAsc ? ' \u25B2' : ' \u25BC';
+        th.appendChild(arrow);
+      }
+    });
+  }
+
+  document.querySelectorAll('#compTable thead th').forEach(th => {
+    th.addEventListener('click', () => {
+      const key = th.dataset.key;
+      if (key === sortKey) sortAsc = !sortAsc;
+      else { sortKey = key; sortAsc = key === 'campaign'; }
+      renderTable();
+    });
+  });
+
+  renderTable();
+}
+
+init();
+</script>
+</body>
+</html>

@@ -274,11 +274,14 @@ scripts/
   helpers.py      # Utilities, formatting, topic maps
   telegram.py     # Telegram Bot API wrapper
   state.py        # Gist-based state persistence
-  test_helpers.py # Test suite (31 tests)
+  test_helpers.py # Test suite for helpers (31 tests)
+  test_checker.py # Test suite for checker (22 tests)
 config.json           # Your configuration
 config.example.json   # Template configuration
 boons.json            # Flavour boons for POTW (optional)
 boons.example.json    # Sample boons file
+docs/
+  index.html          # Archive dashboard (Chart.js)
 data/
   weekly_archive.json # Auto-committed weekly stats archive
 ```
@@ -313,3 +316,17 @@ POTW needs a week of data, pace reports need two weeks. Give it time.
 Zero. GitHub Actions free tier gives 2,000 minutes/month.
 This bot uses about 30 seconds per run, 720 runs/month = ~36 minutes.
 The Gist and Telegram Bot API are also free.
+
+---
+
+## Archive Dashboard
+
+The bot archives weekly stats to `data/weekly_archive.json`.
+A built-in dashboard at `docs/index.html` visualizes this data with charts and tables.
+
+To enable it via GitHub Pages:
+1. Go to repo **Settings > Pages**.
+2. Set source to **Deploy from a branch**, branch `main`, folder `/docs`.
+3. Visit `https://yourusername.github.io/your-repo-name/`.
+
+Or open `docs/index.html` locally (it fetches the JSON via relative path).
