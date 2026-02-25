@@ -496,7 +496,14 @@ def post_roster_summary(config: dict, state: dict) -> None:
         if not lines:
             continue
 
-        message = f"Party roster for {name}:\n\n" + "\n\n".join(lines)
+        player_count = len(players)
+        footer = f"\nParty size: {player_count}/{helpers.REQUIRED_PLAYERS}."
+        if player_count < helpers.REQUIRED_PLAYERS:
+            needed = helpers.REQUIRED_PLAYERS - player_count
+            s = "s" if needed != 1 else ""
+            footer += f"\n{name} needs {needed} more player{s}!"
+
+        message = f"Party roster for {name}:\n\n" + "\n\n".join(lines) + footer
 
         print(f"Posting roster for {name}")
         if tg.send_message(group_id, chat_topic_id, message):
