@@ -53,7 +53,13 @@ attention without reading every stat.
 
 ---
 
-## v1.4.0 — Dashboard & History
+## v1.4.0 — Archive & History
+
+### ✅ PBP transcript archive
+Every message in every PBP topic is logged to persistent markdown files
+in the repo. Monthly files per campaign at `data/pbp_logs/`. Media is
+tagged with type markers. Auto-generated README index. A complete
+disaster-recovery backup of every campaign's story.
 
 ### 📋 GitHub Pages dashboard improvements
 - Player-level drill-down (click a campaign to see individual stats)

@@ -31,10 +31,10 @@ jobs:
           GIST_ID: ${{ secrets.GIST_ID }}
         run: cd scripts && python checker.py
 
-      - name: Commit archive data
+      - name: Commit data (archive + transcripts)
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add data/
-          git diff --cached --quiet || git commit -m "Update weekly archive [skip ci]"
+          git diff --cached --quiet || git commit -m "Update archive and PBP transcripts [skip ci]"
           git push || echo "Nothing to push"

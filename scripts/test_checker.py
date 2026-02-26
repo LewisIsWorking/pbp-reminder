@@ -63,6 +63,12 @@ def _reset():
     _sent_messages.clear()
 
 
+# Redirect transcript logging to temp dir (so tests don't write to repo)
+import tempfile as _tempfile
+_test_log_dir = _tempfile.mkdtemp()
+checker._LOGS_DIR = __import__("pathlib").Path(_test_log_dir)
+
+
 def _make_config(pairs=None, gm_ids=None):
     return {
         "group_id": -100,
@@ -1680,6 +1686,110 @@ def test_pause_shows_in_campaign():
     result = checker._build_campaign_report("100", config, state, {"999"})
     assert "PAUSED" in result
     assert "Between arcs" in result
+
+
+# ------------------------------------------------------------------ #
+#  Transcript logging tests
+# ------------------------------------------------------------------ #
+def test_sanitize_dirname():
+    assert checker._sanitize_dirname("Doomsday Funtime") == "Doomsday_Funtime"
+    assert checker._sanitize_dirname("Test/Bad:Name!") == "TestBadName"
+    assert checker._sanitize_dirname("  Spaces  ") == "Spaces"
+
+
+def test_format_log_entry_text():
+    parsed = {
+        "user_name": "Alice", "user_last_name": "B", "user_id": "42",
+        "msg_time_iso": "2026-02-26T14:30:05+00:00",
+        "raw_text": "I attack the goblin!", "media_type": None, "caption": "",
+    }
+    result = checker._format_log_entry(parsed, {"999"})
+    assert "**Alice B**" in result
+    assert "I attack the goblin!" in result
+    assert "[GM]" not in result
+    assert "2026-02-26 14:30:05" in result
+
+
+def test_format_log_entry_gm():
+    parsed = {
+        "user_name": "Lewis", "user_last_name": "", "user_id": "999",
+        "msg_time_iso": "2026-02-26T14:30:05+00:00",
+        "raw_text": "The goblin snarls.", "media_type": None, "caption": "",
+    }
+    result = checker._format_log_entry(parsed, {"999"})
+    assert "[GM]" in result
+
+
+def test_format_log_entry_image():
+    parsed = {
+        "user_name": "Alice", "user_last_name": "", "user_id": "42",
+        "msg_time_iso": "2026-02-26T14:30:05+00:00",
+        "raw_text": "", "media_type": "image", "caption": "battle map",
+    }
+    result = checker._format_log_entry(parsed, {"999"})
+    assert "[image]" in result
+    assert "battle map" in result
+
+
+def test_format_log_entry_sticker():
+    parsed = {
+        "user_name": "Bob", "user_last_name": "", "user_id": "42",
+        "msg_time_iso": "2026-02-26T14:30:05+00:00",
+        "raw_text": "", "media_type": "sticker:😂", "caption": "",
+    }
+    result = checker._format_log_entry(parsed, {"999"})
+    assert "[sticker 😂]" in result
+
+
+def test_append_to_transcript():
+    import shutil
+    test_dir = checker._LOGS_DIR / "transcript_test"
+    if test_dir.exists():
+        shutil.rmtree(test_dir)
+
+    parsed = {
+        "campaign_name": "transcript_test",
+        "user_name": "Alice", "user_last_name": "", "user_id": "42",
+        "msg_time_iso": "2026-02-26T14:30:05+00:00",
+        "raw_text": "Hello world!", "media_type": None, "caption": "",
+    }
+    checker._append_to_transcript(parsed, {"999"})
+
+    log_dir = checker._LOGS_DIR / "transcript_test"
+    assert log_dir.exists()
+    log_file = log_dir / "2026-02.md"
+    assert log_file.exists()
+    content = log_file.read_text()
+    assert "transcript_test — 2026-02" in content
+    assert "**Alice**" in content
+    assert "Hello world!" in content
+
+    # Second write appends
+    parsed["raw_text"] = "Second message"
+    checker._append_to_transcript(parsed, {"999"})
+    content = log_file.read_text()
+    assert "Second message" in content
+    assert content.count("transcript_test — 2026-02") == 1  # Header only once
+
+    shutil.rmtree(test_dir)
+
+
+def test_parse_message_captures_media():
+    maps = helpers.build_topic_maps({"topic_pairs": [
+        {"name": "Test", "chat_topic_id": 200, "pbp_topic_ids": [100]},
+    ]})
+    msg = {
+        "chat": {"id": -100},
+        "message_thread_id": 100,
+        "from": {"id": 42, "first_name": "Alice"},
+        "date": int(datetime.now(timezone.utc).timestamp()),
+        "photo": [{"file_id": "abc"}],
+        "caption": "battle map",
+    }
+    result = checker._parse_message(msg, -100, maps)
+    assert result["media_type"] == "image"
+    assert result["caption"] == "battle map"
+    assert result["text"] == "battle map"  # Falls back to caption
 
 
 # ------------------------------------------------------------------ #
