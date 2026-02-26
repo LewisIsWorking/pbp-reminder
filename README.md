@@ -187,6 +187,7 @@ Key fields:
 - **topic_pairs**: One entry per campaign. Each needs a name, a chat topic, and one or more PBP topics.
 - **created**: Campaign start date for anniversary alerts (optional, `YYYY-MM-DD`).
 - **gm_user_ids** (per-campaign): Optional override that replaces the global GM list for this campaign only. Useful when a campaign has a different GM.
+- **characters** (per-campaign): Optional mapping of `"user_id": "Character Name"`. Enables `/party` command and shows character names in rosters, stats, and transcripts.
 - **disabled_features**: Optional list of features to disable for this campaign.
   Valid values: `alerts`, `warnings`, `roster`, `potw`, `pace`, `recruitment`, `combat`, `anniversary`.
 
@@ -310,7 +311,7 @@ scripts/
   state.py              # Gist-based state persistence
   post_changelog.py     # Changelog parser and Telegram poster
   test_helpers.py       # Test suite for helpers (37 tests)
-  test_checker.py       # Test suite for checker (117 tests)
+  test_checker.py       # Test suite for checker (123 tests)
   test_import_history.py # Test suite for import (18 tests)
   import_history.py     # Historical transcript backfill from Telegram export
 config.json             # Your configuration

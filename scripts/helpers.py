@@ -431,3 +431,18 @@ def build_topic_maps(config: dict) -> TopicMaps:
     result = TopicMaps(to_canonical, to_chat, to_name, all_pbp_ids)
     _topic_maps_cache = (id(config), result)
     return result
+
+
+def get_characters(config: dict, pid: str) -> dict:
+    """Return {user_id_str: character_name} for a campaign, or empty dict."""
+    for pair in config.get("topic_pairs", []):
+        all_ids = [str(pair.get("chat_topic_id", ""))] + [str(x) for x in pair.get("pbp_topic_ids", [])]
+        if pid in all_ids:
+            chars = pair.get("characters", {})
+            return {str(k): v for k, v in chars.items()}
+    return {}
+
+
+def character_name(config: dict, pid: str, user_id: str) -> str | None:
+    """Look up a user's character name for a campaign, or None."""
+    return get_characters(config, pid).get(str(user_id))

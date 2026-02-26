@@ -16,6 +16,10 @@
             "pbp_topic_ids": [44444, 55555],
             "created": "2024-06-01",
             "gm_user_ids": [987654321],
+            "characters": {
+                "111222333": "Cardigan the Barbarian",
+                "444555666": "Amar Rookmoon"
+            },
             "disabled_features": ["recruitment", "potw"]
         }
     ],

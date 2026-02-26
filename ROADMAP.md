@@ -101,6 +101,17 @@ the roster and get tracked.
 
 ---
 
+## v1.9.0 — Character Awareness
+
+### ✅ Character name mapping
+Optional `characters` field per campaign maps user IDs to character names.
+Names appear in rosters, `/mystats`, transcripts, and the new `/party` command.
+
+### ✅ `/party` command
+Shows the in-fiction party composition: character names, players, activity.
+
+---
+
 ## v1.8.0 — Message Milestones
 
 ### ✅ Campaign milestones (every 500 messages)
@@ -126,11 +137,6 @@ time since last post, and combat state. Essential for returning PBP players.
   send a gentle nudge to the GM (privately or in chat)
 - "Conversation dying" warning when no posts for 48h+ across ALL users
   (including GM), distinct from the per-player inactivity alerts
-
-### 💡 Character awareness
-- Optional config field per campaign: character names mapped to user IDs
-- Tips and roster could reference character names alongside player names
-- "/party" command showing the in-fiction party composition
 
 ### 💡 AI summaries (revisited)
 - Optional AI-generated "story so far" recap using Anthropic API

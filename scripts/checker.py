@@ -148,7 +148,8 @@ _HELP_TEXT = (
     "/mystats - Your personal stats (also: /me)\n"
     "/myhistory - 8-week posting sparkline\n"
     "/whosturn - Who has acted in combat and who hasn't\n"
-    "/catchup - What happened since you last posted"
+    "/catchup - What happened since you last posted\n"
+    "/party - In-fiction party composition"
 )
 
 
@@ -323,13 +324,16 @@ def _build_campaign_report(pid: str, config: dict, state: dict, gm_ids: set) -> 
 
 
 def _build_mystats(pid: str, user_id: str, campaign_name: str,
-                   state: dict, gm_ids: set) -> str:
+                   state: dict, gm_ids: set, config: dict | None = None) -> str:
     """Build personal stats for a player's /mystats command."""
     now = datetime.now(timezone.utc)
     week_ago = now - timedelta(days=7)
 
     is_gm = user_id in gm_ids
     role = "GM" if is_gm else "Player"
+
+    # Character name
+    char_name = helpers.character_name(config, pid, user_id) if config else None
 
     # Get their data
     topic_ts = helpers.get_topic_timestamps(state, pid)
@@ -348,8 +352,13 @@ def _build_mystats(pid: str, user_id: str, campaign_name: str,
     # Calculate posting streak (consecutive days with posts)
     streak = _calc_streak(raw_ts, now)
 
+    header = f"Your stats in {campaign_name} ({role})"
+    if char_name:
+        header += f" — playing {char_name}"
+    header += ":"
+
     lines = [
-        f"Your stats in {campaign_name} ({role}):",
+        header,
         f"Total: {posts_str(total_count)} ({len(sessions)} sessions)",
         f"This week: {posts_str(len(week_posts))}",
         f"Avg gap: {avg_gap}",
@@ -359,6 +368,58 @@ def _build_mystats(pid: str, user_id: str, campaign_name: str,
         lines.append(f"🔥 Streak: {streak} consecutive days")
     elif streak == 1:
         lines.append(f"Streak: 1 day (keep it going!)")
+
+    return "\n".join(lines)
+
+
+def _build_party(pid: str, campaign_name: str, config: dict, state: dict) -> str:
+    """Build the in-fiction party composition for /party command."""
+    characters = helpers.get_characters(config, pid)
+
+    if not characters:
+        return (f"No characters configured for {campaign_name}.\n"
+                f"Ask your GM to add a 'characters' mapping in the bot config.")
+
+    now = datetime.now(timezone.utc)
+    players = [
+        p for p in state.get("players", {}).values()
+        if p.get("pbp_topic_id") == pid
+    ]
+
+    lines = [f"The party of {campaign_name}:", ""]
+
+    # Map active players to their characters
+    active_chars = []
+    orphan_chars = []
+
+    for uid, char_name in sorted(characters.items(), key=lambda x: x[1]):
+        player = None
+        for p in players:
+            if p.get("user_id") == uid:
+                player = p
+                break
+
+        if player:
+            player_name = helpers.player_full_name(player)
+            last_post = datetime.fromisoformat(player["last_post_time"])
+            days_ago = helpers.days_since(now, last_post)
+            if days_ago < 1:
+                active_str = "active today"
+            elif days_ago < 7:
+                active_str = f"active {int(days_ago)}d ago"
+            else:
+                active_str = f"last seen {int(days_ago)}d ago"
+            active_chars.append(f"  ⚔️ {char_name} ({player_name}) — {active_str}")
+        else:
+            orphan_chars.append(f"  🔇 {char_name} — no recent posts")
+
+    for line in active_chars:
+        lines.append(line)
+    for line in orphan_chars:
+        lines.append(line)
+
+    lines.append("")
+    lines.append(f"{len(active_chars)} active, {len(orphan_chars)} inactive")
 
     return "\n".join(lines)
 
@@ -699,6 +760,9 @@ _TIPS = [
 
     "💡 <b>Message milestones</b> — The bot celebrates every 500th PBP message in each campaign, "
     "and every 5,000th message across all campaigns combined. Keep posting!",
+
+    "💡 <b>/party</b> — See the in-fiction party composition: character names, "
+    "who plays them, and when they were last active. Requires character config.",
 ]
 
 
@@ -882,7 +946,7 @@ def _sanitize_dirname(name: str) -> str:
     return "".join(c if c.isalnum() or c in (" ", "-", "_") else "" for c in name).strip().replace(" ", "_")
 
 
-def _format_log_entry(parsed: dict, gm_ids: set) -> str:
+def _format_log_entry(parsed: dict, gm_ids: set, char_name: str | None = None) -> str:
     """Format a single message as a markdown log line."""
     ts = parsed["msg_time_iso"][:19].replace("T", " ")  # 2026-02-26 14:30:05
     name = parsed["user_name"]
@@ -892,6 +956,7 @@ def _format_log_entry(parsed: dict, gm_ids: set) -> str:
 
     is_gm = parsed["user_id"] in gm_ids
     role_tag = " [GM]" if is_gm else ""
+    char_tag = f" ({char_name})" if char_name and not is_gm else ""
 
     raw = parsed.get("raw_text", "")
     media = parsed.get("media_type")
@@ -913,10 +978,10 @@ def _format_log_entry(parsed: dict, gm_ids: set) -> str:
 
     content = " ".join(parts) if parts else "*[empty message]*"
 
-    return f"**{name}**{role_tag} ({ts}):\n{content}\n"
+    return f"**{name}**{char_tag}{role_tag} ({ts}):\n{content}\n"
 
 
-def _append_to_transcript(parsed: dict, gm_ids: set) -> None:
+def _append_to_transcript(parsed: dict, gm_ids: set, config: dict | None = None) -> None:
     """Append a message to the campaign's monthly transcript file.
 
     Files: data/pbp_logs/{CampaignName}/{YYYY-MM}.md
@@ -932,6 +997,11 @@ def _append_to_transcript(parsed: dict, gm_ids: set) -> None:
     month_str = msg_date[:7]  # YYYY-MM
     log_file = campaign_dir / f"{month_str}.md"
 
+    # Character name lookup
+    char_name = None
+    if config:
+        char_name = helpers.character_name(config, parsed["pid"], parsed["user_id"])
+
     # Create header on first write
     is_new = not log_file.exists()
 
@@ -940,7 +1010,7 @@ def _append_to_transcript(parsed: dict, gm_ids: set) -> None:
             f.write(f"# {campaign_name} — {month_str}\n\n")
             f.write("*PBP transcript archived by PathWarsNudge bot.*\n\n---\n\n")
 
-        entry = _format_log_entry(parsed, gm_ids)
+        entry = _format_log_entry(parsed, gm_ids, char_name)
         f.write(entry + "\n")
 
 
@@ -1156,13 +1226,18 @@ def process_updates(updates: list, config: dict, state: dict) -> int:
 
         # ---- /mystats command ----
         if text in ("/mystats", "/me"):
-            my_report = _build_mystats(pid, user_id, campaign_name, state, gm_ids)
+            my_report = _build_mystats(pid, user_id, campaign_name, state, gm_ids, config)
             tg.send_message(group_id, thread_id, my_report)
 
         # ---- /whosturn command ----
         if text == "/whosturn":
             turn_report = _build_whosturn(pid, campaign_name, state)
             tg.send_message(group_id, thread_id, turn_report)
+
+        # ---- /party command ----
+        if text == "/party":
+            party_report = _build_party(pid, campaign_name, config, state)
+            tg.send_message(group_id, thread_id, party_report)
 
         # ---- /myhistory command ----
         if text == "/myhistory":
@@ -1258,7 +1333,7 @@ def process_updates(updates: list, config: dict, state: dict) -> int:
 
         # Log to persistent PBP transcript
         if not text.startswith("/"):
-            _append_to_transcript(parsed, gm_ids)
+            _append_to_transcript(parsed, gm_ids, config)
 
         print(f"Tracked message in {campaign_name} from {user_name}")
 
@@ -1476,6 +1551,7 @@ def post_roster_summary(config: dict, state: dict, *, now: datetime | None = Non
             continue
 
         lines = []
+        characters = helpers.get_characters(config, pid)
 
         for player in sorted(players, key=lambda p: counts.get(p["user_id"], 0), reverse=True):
             uid = player["user_id"]
@@ -1483,8 +1559,10 @@ def post_roster_summary(config: dict, state: dict, *, now: datetime | None = Non
             if not raw_ts:
                 continue
             full = helpers.player_full_name(player)
+            char_name = characters.get(uid)
+            label = f"{full} ({char_name})" if char_name else full
             stats = _roster_user_stats(raw_ts, counts.get(uid, 0), now)
-            lines.append(_roster_block(full, player.get("username", ""), stats))
+            lines.append(_roster_block(label, player.get("username", ""), stats))
 
         # Add GM stats if present
         for gm_id in gm_ids:

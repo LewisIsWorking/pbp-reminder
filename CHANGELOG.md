@@ -11,6 +11,34 @@ Versioning: [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.9.0] - 2026-02-26
+
+### Summary
+Character awareness. Campaigns can now map player IDs to character names.
+Characters appear in rosters, `/mystats`, `/party`, and transcripts.
+
+### Added — `/party` command
+- Shows the in-fiction party: character names, who plays them, activity status.
+- Active vs inactive breakdown.
+- Requires `characters` config on the campaign's topic_pair.
+
+### Added — Character names throughout
+- **Roster summaries**: player lines show "Alice (Cardigan)" when configured.
+- **`/mystats`**: header shows "playing Cardigan" when configured.
+- **Transcripts**: log entries show "**Alice** (Cardigan)" for player messages.
+- Config field: `"characters": {"user_id": "Character Name"}` per campaign.
+
+### Added
+- `helpers.get_characters()` and `helpers.character_name()` lookup functions.
+- New daily tip for `/party`.
+
+### Tests
+- 6 new tests: character_name helper, get_characters, party with/without
+  characters, mystats with character, transcript with character.
+- Total: 178 tests (37 helpers + 123 checker + 18 import).
+
+---
+
 ## [1.8.0] - 2026-02-26
 
 ### Summary

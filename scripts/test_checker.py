@@ -2065,6 +2065,119 @@ def test_milestone_global():
 
 
 # ------------------------------------------------------------------ #
+#  Character awareness and /party tests
+# ------------------------------------------------------------------ #
+def test_character_name_helper():
+    config = {
+        "topic_pairs": [
+            {"name": "A", "chat_topic_id": 10, "pbp_topic_ids": [100],
+             "characters": {"42": "Cardigan", "50": "Amar"}},
+        ],
+    }
+    assert helpers.character_name(config, "100", "42") == "Cardigan"
+    assert helpers.character_name(config, "100", "50") == "Amar"
+    assert helpers.character_name(config, "100", "999") is None
+    assert helpers.character_name(config, "999", "42") is None
+
+
+def test_get_characters():
+    config = {
+        "topic_pairs": [
+            {"name": "A", "chat_topic_id": 10, "pbp_topic_ids": [100],
+             "characters": {42: "Cardigan"}},
+        ],
+    }
+    chars = helpers.get_characters(config, "100")
+    assert chars == {"42": "Cardigan"}
+    assert helpers.get_characters(config, "999") == {}
+
+
+def test_party_with_characters():
+    _reset()
+    now = datetime.now(timezone.utc)
+    config = {
+        "group_id": -100,
+        "gm_user_ids": [999],
+        "topic_pairs": [
+            {"name": "TestCampaign", "chat_topic_id": 200, "pbp_topic_ids": [100],
+             "characters": {"42": "Cardigan", "50": "Amar"}},
+        ],
+    }
+    state = _make_state()
+    state["players"]["100:42"] = {
+        "user_id": "42", "first_name": "Alice", "last_name": "",
+        "username": "", "campaign_name": "TestCampaign",
+        "pbp_topic_id": "100", "last_post_time": now.isoformat(),
+        "last_warned_week": 0,
+    }
+
+    result = checker._build_party("100", "TestCampaign", config, state)
+    assert "Cardigan" in result
+    assert "Alice" in result
+    assert "Amar" in result
+    assert "1 active" in result
+    assert "1 inactive" in result
+
+
+def test_party_no_characters():
+    _reset()
+    config = _make_config()
+    state = _make_state()
+    result = checker._build_party("100", "TestCampaign", config, state)
+    assert "no characters" in result.lower()
+
+
+def test_mystats_with_character():
+    _reset()
+    now = datetime.now(timezone.utc)
+    config = {
+        "group_id": -100,
+        "gm_user_ids": [999],
+        "topic_pairs": [
+            {"name": "Test", "chat_topic_id": 200, "pbp_topic_ids": [100],
+             "characters": {"42": "Cardigan"}},
+        ],
+    }
+    state = _make_state()
+    state["post_timestamps"]["100"] = {
+        "42": [(now - timedelta(hours=h)).isoformat() for h in range(10)],
+    }
+    state["message_counts"]["100"] = {"42": 10}
+
+    result = checker._build_mystats("100", "42", "Test", state, {"999"}, config)
+    assert "Cardigan" in result
+
+
+def test_transcript_with_character():
+    _reset()
+    import shutil
+    test_dir = checker._LOGS_DIR / "char_test"
+    if test_dir.exists():
+        shutil.rmtree(test_dir)
+
+    config = {
+        "topic_pairs": [
+            {"name": "char_test", "chat_topic_id": 10, "pbp_topic_ids": [100],
+             "characters": {"42": "Cardigan"}},
+        ],
+    }
+    parsed = {
+        "campaign_name": "char_test", "pid": "100",
+        "user_name": "Alice", "user_last_name": "", "user_id": "42",
+        "msg_time_iso": "2026-02-26T14:30:05+00:00",
+        "raw_text": "I rage!", "media_type": None, "caption": "",
+    }
+    checker._append_to_transcript(parsed, {"999"}, config)
+
+    log_file = checker._LOGS_DIR / "char_test" / "2026-02.md"
+    content = log_file.read_text()
+    assert "(Cardigan)" in content
+    assert "I rage!" in content
+
+    shutil.rmtree(test_dir)
+
+
+# ------------------------------------------------------------------ #
 #  Runner
 # ------------------------------------------------------------------ #
 def _run_all():
