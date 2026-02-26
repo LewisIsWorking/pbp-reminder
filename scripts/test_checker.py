@@ -1048,6 +1048,282 @@ def test_check_recruitment_skips_full_roster():
 
 
 # ------------------------------------------------------------------ #
+#  /mystats tests
+# ------------------------------------------------------------------ #
+def test_build_mystats_basic():
+    _reset()
+    now = datetime.now(timezone.utc)
+    state = _make_state()
+
+    state["players"]["100:42"] = {
+        "user_id": "42", "first_name": "Alice", "last_name": "B",
+        "username": "alice", "campaign_name": "TestCampaign",
+        "pbp_topic_id": "100", "last_post_time": (now - timedelta(hours=2)).isoformat(),
+        "last_warned_week": 0,
+    }
+    state["message_counts"]["100"] = {"42": 15}
+    state["post_timestamps"]["100"] = {
+        "42": [(now - timedelta(hours=h)).isoformat() for h in [2, 24, 48, 72, 96, 120]],
+    }
+
+    result = checker._build_mystats("100", "42", "TestCampaign", state, {"999"})
+    assert "TestCampaign" in result
+    assert "Player" in result
+    assert "15 posts" in result
+    assert "Avg gap" in result
+
+
+def test_build_mystats_gm():
+    _reset()
+    now = datetime.now(timezone.utc)
+    state = _make_state()
+    state["message_counts"]["100"] = {"999": 30}
+    state["post_timestamps"]["100"] = {
+        "999": [(now - timedelta(hours=h)).isoformat() for h in [1, 12, 24]],
+    }
+
+    result = checker._build_mystats("100", "999", "TestCampaign", state, {"999"})
+    assert "GM" in result
+
+
+def test_build_mystats_no_posts():
+    _reset()
+    state = _make_state()
+    result = checker._build_mystats("100", "42", "TestCampaign", state, {"999"})
+    assert "No posts tracked" in result
+
+
+def test_process_updates_mystats_command():
+    _reset()
+    config = _make_config()
+    state = _make_state()
+    now_ts = int(datetime.now(timezone.utc).timestamp())
+
+    updates = [{
+        "update_id": 7001,
+        "message": {
+            "chat": {"id": -100},
+            "message_thread_id": 100,
+            "from": {"id": 42, "first_name": "Test"},
+            "date": now_ts,
+            "text": "/mystats",
+        },
+    }]
+
+    checker.process_updates(updates, config, state)
+    stats_msgs = [m for m in _sent_messages if "No posts tracked" in m.get("text", "") or "TestCampaign" in m.get("text", "")]
+    assert len(stats_msgs) >= 1
+
+
+def test_process_updates_me_alias():
+    _reset()
+    config = _make_config()
+    state = _make_state()
+    now_ts = int(datetime.now(timezone.utc).timestamp())
+
+    updates = [{
+        "update_id": 7002,
+        "message": {
+            "chat": {"id": -100},
+            "message_thread_id": 100,
+            "from": {"id": 42, "first_name": "Test"},
+            "date": now_ts,
+            "text": "/me",
+        },
+    }]
+
+    checker.process_updates(updates, config, state)
+    stats_msgs = [m for m in _sent_messages if "No posts tracked" in m.get("text", "") or "TestCampaign" in m.get("text", "")]
+    assert len(stats_msgs) >= 1
+
+
+# ------------------------------------------------------------------ #
+#  _calc_streak tests
+# ------------------------------------------------------------------ #
+def test_calc_streak_consecutive_days():
+    now = datetime(2025, 3, 15, 14, 0, 0, tzinfo=timezone.utc)
+    timestamps = [
+        (now - timedelta(days=d, hours=h)).isoformat()
+        for d, h in [(0, 2), (1, 5), (2, 3), (3, 8)]  # 4 consecutive days
+    ]
+    assert checker._calc_streak(timestamps, now) == 4
+
+
+def test_calc_streak_gap_breaks():
+    now = datetime(2025, 3, 15, 14, 0, 0, tzinfo=timezone.utc)
+    timestamps = [
+        (now - timedelta(days=0, hours=2)).isoformat(),
+        (now - timedelta(days=1, hours=5)).isoformat(),
+        # Day 2 missing
+        (now - timedelta(days=3, hours=3)).isoformat(),
+    ]
+    assert checker._calc_streak(timestamps, now) == 2
+
+
+def test_calc_streak_no_recent_posts():
+    now = datetime(2025, 3, 15, 14, 0, 0, tzinfo=timezone.utc)
+    timestamps = [
+        (now - timedelta(days=5)).isoformat(),  # Too old
+    ]
+    assert checker._calc_streak(timestamps, now) == 0
+
+
+def test_calc_streak_multiple_posts_same_day():
+    now = datetime(2025, 3, 15, 14, 0, 0, tzinfo=timezone.utc)
+    timestamps = [
+        (now - timedelta(hours=1)).isoformat(),
+        (now - timedelta(hours=3)).isoformat(),
+        (now - timedelta(hours=5)).isoformat(),
+        (now - timedelta(days=1, hours=2)).isoformat(),
+    ]
+    assert checker._calc_streak(timestamps, now) == 2
+
+
+def test_calc_streak_empty():
+    now = datetime(2025, 3, 15, 14, 0, 0, tzinfo=timezone.utc)
+    assert checker._calc_streak([], now) == 0
+
+
+# ------------------------------------------------------------------ #
+#  /whosturn tests
+# ------------------------------------------------------------------ #
+def test_build_whosturn_no_combat():
+    _reset()
+    state = _make_state()
+    result = checker._build_whosturn("100", "TestCampaign", state)
+    assert "No active combat" in result
+
+
+def test_build_whosturn_players_phase():
+    _reset()
+    now = datetime.now(timezone.utc)
+    state = _make_state()
+
+    state["players"]["100:42"] = {
+        "user_id": "42", "first_name": "Alice", "last_name": "",
+        "username": "", "campaign_name": "TestCampaign",
+        "pbp_topic_id": "100", "last_post_time": now.isoformat(),
+        "last_warned_week": 0,
+    }
+    state["players"]["100:43"] = {
+        "user_id": "43", "first_name": "Bob", "last_name": "",
+        "username": "", "campaign_name": "TestCampaign",
+        "pbp_topic_id": "100", "last_post_time": now.isoformat(),
+        "last_warned_week": 0,
+    }
+    state["combat"]["100"] = {
+        "active": True, "round": 2, "current_phase": "players",
+        "players_acted": ["42"], "last_ping_at": None,
+        "campaign_name": "TestCampaign",
+        "phase_started_at": (now - timedelta(hours=1)).isoformat(),
+    }
+
+    result = checker._build_whosturn("100", "TestCampaign", state)
+    assert "Round 2" in result
+    assert "Alice" in result
+    assert "Bob" in result
+    assert "Acted" in result
+    assert "Waiting" in result
+
+
+def test_build_whosturn_enemies_phase():
+    _reset()
+    now = datetime.now(timezone.utc)
+    state = _make_state()
+
+    state["combat"]["100"] = {
+        "active": True, "round": 1, "current_phase": "enemies",
+        "players_acted": [], "last_ping_at": None,
+        "campaign_name": "TestCampaign",
+        "phase_started_at": (now - timedelta(hours=1)).isoformat(),
+    }
+
+    result = checker._build_whosturn("100", "TestCampaign", state)
+    assert "Enemies" in result
+    assert "GM" in result
+
+
+def test_process_updates_whosturn_command():
+    _reset()
+    config = _make_config()
+    state = _make_state()
+    now_ts = int(datetime.now(timezone.utc).timestamp())
+
+    updates = [{
+        "update_id": 7003,
+        "message": {
+            "chat": {"id": -100},
+            "message_thread_id": 100,
+            "from": {"id": 42, "first_name": "Test"},
+            "date": now_ts,
+            "text": "/whosturn",
+        },
+    }]
+
+    checker.process_updates(updates, config, state)
+    turn_msgs = [m for m in _sent_messages if "No active combat" in m.get("text", "") or "Round" in m.get("text", "")]
+    assert len(turn_msgs) >= 1
+
+
+# ------------------------------------------------------------------ #
+#  Daily tip tests
+# ------------------------------------------------------------------ #
+def test_post_daily_tip_sends():
+    _reset()
+    now = datetime.now(timezone.utc)
+    config = _make_config()
+    state = _make_state()
+
+    checker.post_daily_tip(config, state, now=now)
+    assert len(_sent_messages) == 1
+    assert "💡" in _sent_messages[0].get("text", "")
+    assert state.get("last_daily_tip") is not None
+    assert len(state.get("used_tip_indices", [])) == 1
+
+
+def test_post_daily_tip_respects_cooldown():
+    _reset()
+    now = datetime.now(timezone.utc)
+    config = _make_config()
+    state = _make_state()
+    state["last_daily_tip"] = (now - timedelta(hours=10)).isoformat()
+
+    checker.post_daily_tip(config, state, now=now)
+    assert len(_sent_messages) == 0  # Too soon
+
+
+def test_post_daily_tip_rotates():
+    _reset()
+    now = datetime.now(timezone.utc)
+    config = _make_config()
+    state = _make_state()
+
+    # Exhaust all but one tip
+    state["used_tip_indices"] = list(range(len(checker._TIPS) - 1))
+
+    checker.post_daily_tip(config, state, now=now)
+    assert len(_sent_messages) == 1
+    # The only remaining index should be the one not in the used list
+    last_idx = state["used_tip_indices"][-1]
+    assert last_idx == len(checker._TIPS) - 1
+
+
+def test_post_daily_tip_resets_cycle():
+    _reset()
+    now = datetime.now(timezone.utc)
+    config = _make_config()
+    state = _make_state()
+
+    # All tips used
+    state["used_tip_indices"] = list(range(len(checker._TIPS)))
+
+    checker.post_daily_tip(config, state, now=now)
+    assert len(_sent_messages) == 1
+    # Cycle should have reset - used_tip_indices should have exactly 1 entry
+    assert len(state["used_tip_indices"]) == 1
+
+
+# ------------------------------------------------------------------ #
 #  Runner
 # ------------------------------------------------------------------ #
 def _run_all():

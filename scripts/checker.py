@@ -128,6 +128,7 @@ _HELP_TEXT = (
     "- Ping players who haven't acted during combat\n"
     "- Recruitment notices when a party is under capacity\n"
     "- Campaign anniversary celebrations\n"
+    "- Daily tips about bot features (posted randomly across campaigns)\n"
     "\n"
     "GM commands:\n"
     "/round <N> players - Start round N, players' turn\n"
@@ -137,7 +138,9 @@ _HELP_TEXT = (
     "Everyone:\n"
     "/help - Show this message\n"
     "/status - Campaign health snapshot\n"
-    "/campaign - Full scoreboard with roster and stats"
+    "/campaign - Full scoreboard with roster and stats\n"
+    "/mystats - Your personal stats (also: /me)\n"
+    "/whosturn - Who has acted in combat and who hasn't"
 )
 
 
@@ -302,6 +305,202 @@ def _build_campaign_report(pid: str, config: dict, state: dict, gm_ids: set) -> 
     return "\n".join(lines)
 
 
+def _build_mystats(pid: str, user_id: str, campaign_name: str,
+                   state: dict, gm_ids: set) -> str:
+    """Build personal stats for a player's /mystats command."""
+    now = datetime.now(timezone.utc)
+    week_ago = now - timedelta(days=7)
+
+    is_gm = user_id in gm_ids
+    role = "GM" if is_gm else "Player"
+
+    # Get their data
+    topic_ts = helpers.get_topic_timestamps(state, pid)
+    raw_ts = topic_ts.get(user_id, [])
+    total_count = state.get("message_counts", {}).get(pid, {}).get(user_id, 0)
+
+    if not raw_ts:
+        return f"No posts tracked yet for you in {campaign_name}. Post something and check back!"
+
+    all_posts = sorted(datetime.fromisoformat(ts) for ts in raw_ts)
+    sessions = deduplicate_posts(all_posts)
+    week_posts = deduplicate_posts(timestamps_in_window(raw_ts, week_ago))
+    avg_gap = calc_avg_gap_str(raw_ts)
+    last_post_str = fmt_relative_date(now, all_posts[-1])
+
+    # Calculate posting streak (consecutive days with posts)
+    streak = _calc_streak(raw_ts, now)
+
+    lines = [
+        f"Your stats in {campaign_name} ({role}):",
+        f"Total: {posts_str(total_count)} ({len(sessions)} sessions)",
+        f"This week: {posts_str(len(week_posts))}",
+        f"Avg gap: {avg_gap}",
+        f"Last post: {last_post_str}",
+    ]
+    if streak > 1:
+        lines.append(f"🔥 Streak: {streak} consecutive days")
+    elif streak == 1:
+        lines.append(f"Streak: 1 day (keep it going!)")
+
+    return "\n".join(lines)
+
+
+def _calc_streak(raw_timestamps: list[str], now: datetime) -> int:
+    """Count consecutive days with at least one post, ending at today or yesterday.
+
+    Returns 0 if no recent posts, otherwise the number of consecutive days.
+    """
+    if not raw_timestamps:
+        return 0
+
+    # Get unique posting dates
+    post_dates = sorted({datetime.fromisoformat(ts).date() for ts in raw_timestamps})
+    today = now.date()
+
+    # Streak must include today or yesterday
+    if post_dates[-1] < today - timedelta(days=1):
+        return 0
+
+    # Count backward from the most recent post date
+    streak = 1
+    for i in range(len(post_dates) - 1, 0, -1):
+        gap = (post_dates[i] - post_dates[i - 1]).days
+        if gap == 1:
+            streak += 1
+        elif gap == 0:
+            continue  # Same day, skip
+        else:
+            break
+
+    return streak
+
+
+def _build_whosturn(pid: str, campaign_name: str, state: dict) -> str:
+    """Build combat status for /whosturn command."""
+    combat = state.get("combat", {}).get(pid)
+
+    if not combat or not combat.get("active"):
+        return f"No active combat in {campaign_name}."
+
+    round_num = combat.get("round", 1)
+    phase = combat.get("current_phase", "unknown")
+    phase_label = "Players" if phase == "players" else "Enemies"
+
+    phase_start = datetime.fromisoformat(combat["phase_started_at"])
+    elapsed = helpers.hours_since(datetime.now(timezone.utc), phase_start)
+
+    lines = [
+        f"⚔️ {campaign_name} — Round {round_num}, {phase_label}' turn",
+        f"Phase started: {int(elapsed)}h ago",
+    ]
+
+    if phase == "players":
+        acted = set(combat.get("players_acted", []))
+        players = [
+            p for p in state.get("players", {}).values()
+            if p.get("pbp_topic_id") == pid
+        ]
+        acted_names = [p["first_name"] for p in players if p["user_id"] in acted]
+        waiting_names = [p["first_name"] for p in players if p["user_id"] not in acted]
+
+        if acted_names:
+            lines.append(f"✅ Acted: {', '.join(sorted(acted_names))}")
+        if waiting_names:
+            lines.append(f"⏳ Waiting: {', '.join(sorted(waiting_names))}")
+        else:
+            lines.append("Everyone has acted!")
+    else:
+        lines.append("Waiting for GM to resolve enemy turns.")
+
+    return "\n".join(lines)
+
+
+# ------------------------------------------------------------------ #
+#  Daily tips
+# ------------------------------------------------------------------ #
+_TIPS = [
+    "💡 <b>/mystats</b> — Check your personal stats in any PBP topic. "
+    "See your total posts, sessions, average gap, weekly activity, and current posting streak.",
+
+    "💡 <b>/whosturn</b> — During combat, see who has acted and who the party is waiting on. "
+    "Works for any player, not just the GM.",
+
+    "💡 <b>/campaign</b> — Get a full scoreboard for the current campaign: "
+    "party roster, weekly pace with trends, at-risk players, and combat state. All in one message.",
+
+    "💡 <b>/status</b> — Quick health check: party size, last post time, "
+    "posts this week, and any at-risk players. Faster than /campaign when you just need the headlines.",
+
+    "💡 <b>/help</b> — Forgot a command? Type /help to see the full list of bot features and GM commands.",
+
+    "💡 <b>Player of the Week</b> — Every week, the bot picks the most consistent poster "
+    "(lowest average gap between posts, not just highest count). The winner picks a flavour boon!",
+
+    "💡 <b>Inactivity warnings</b> — The bot notices if you go quiet. "
+    "Week 1: friendly nudge. Week 2: concerned check-in. Week 3: urgent. Week 4: removed from roster. "
+    "Just post to reset the timer!",
+
+    "💡 <b>Combat tracking</b> — When the GM types <code>/round 1 players</code>, "
+    "the bot tracks who has acted. Post anything during the players' phase and you're marked as done. "
+    "If players go quiet, the bot pings those who haven't acted yet.",
+
+    "💡 <b>GM commands</b> — GMs can use <code>/round N players</code> or "
+    "<code>/round N enemies</code> to advance combat, and <code>/endcombat</code> to wrap it up.",
+
+    "💡 <b>Roster reports</b> — Every few days the bot posts a roster showing everyone's "
+    "post count, sessions, weekly activity, average gap, and last post time. "
+    "It's the campaign's health dashboard.",
+
+    "💡 <b>Pace reports</b> — Weekly comparison of this week vs last week: "
+    "total posts, GM vs player split, posts per day, and trend arrows. "
+    "See if your campaign is speeding up or slowing down.",
+
+    "💡 <b>Posting streaks</b> — Post on consecutive days to build a streak. "
+    "Check yours with /mystats. The longer the streak, the bigger the 🔥!",
+]
+
+
+def post_daily_tip(config: dict, state: dict, *, now: datetime | None = None, **_kw) -> None:
+    """Post a random tip to a randomly chosen PBP chat topic once per day."""
+    group_id = config["group_id"]
+    now = now or datetime.now(timezone.utc)
+
+    # Check daily interval
+    last_tip_str = state.get("last_daily_tip")
+    if last_tip_str:
+        last_tip = datetime.fromisoformat(last_tip_str)
+        if helpers.hours_since(now, last_tip) < 22:
+            return
+
+    # Collect all chat topic IDs
+    chat_topics = []
+    for pair in config.get("topic_pairs", []):
+        pid = str(pair["pbp_topic_ids"][0])
+        if helpers.feature_enabled(config, pid, "alerts"):
+            chat_topics.append(pair["chat_topic_id"])
+
+    if not chat_topics:
+        return
+
+    # Pick a tip we haven't used recently
+    used_tips = state.get("used_tip_indices", [])
+    available = [i for i in range(len(_TIPS)) if i not in used_tips]
+    if not available:
+        # Reset cycle
+        available = list(range(len(_TIPS)))
+        used_tips = []
+
+    tip_idx = random.choice(available)
+    topic_id = random.choice(chat_topics)
+
+    print(f"Daily tip #{tip_idx} to topic {topic_id}")
+    if tg.send_message(group_id, topic_id, _TIPS[tip_idx], parse_mode="HTML"):
+        state["last_daily_tip"] = now.isoformat()
+        used_tips.append(tip_idx)
+        state["used_tip_indices"] = used_tips
+
+
 def _handle_round_command(text: str, pid: str, campaign_name: str,
                           now_iso: str, group_id: int, thread_id: int, state: dict) -> None:
     """Parse and execute /round <N> <players|enemies> command."""
@@ -455,6 +654,16 @@ def process_updates(updates: list, config: dict, state: dict) -> int:
         if text == "/campaign":
             report = _build_campaign_report(pid, config, state, gm_ids)
             tg.send_message(group_id, thread_id, report)
+
+        # ---- /mystats command ----
+        if text in ("/mystats", "/me"):
+            my_report = _build_mystats(pid, user_id, campaign_name, state, gm_ids)
+            tg.send_message(group_id, thread_id, my_report)
+
+        # ---- /whosturn command ----
+        if text == "/whosturn":
+            turn_report = _build_whosturn(pid, campaign_name, state)
+            tg.send_message(group_id, thread_id, turn_report)
 
         # ---- Combat commands and tracking ----
         _handle_combat_message(
@@ -1407,6 +1616,7 @@ def _run_checks(config: dict, bot_state: dict) -> None:
         ("Leaderboard", post_campaign_leaderboard),
         ("Recruitment", check_recruitment_needs),
         ("Archive", archive_weekly_data),
+        ("Daily tip", post_daily_tip),
     ]
     for label, func in checks:
         try:

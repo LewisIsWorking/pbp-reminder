@@ -60,14 +60,18 @@ def get_updates(offset: int) -> list:
     return data.get("result", [])
 
 
-def send_message(chat_id: int, thread_id: int, text: str) -> bool:
+def send_message(chat_id: int, thread_id: int, text: str,
+                 parse_mode: str | None = None) -> bool:
     """Send a text message to a specific thread. Returns True on success."""
-    result = _post("sendMessage", {
+    payload = {
         "chat_id": chat_id,
         "message_thread_id": thread_id,
         "text": text,
         "disable_notification": False,
-    }, "send_message")
+    }
+    if parse_mode:
+        payload["parse_mode"] = parse_mode
+    result = _post("sendMessage", payload, "send_message")
     return result is not None
 
 
