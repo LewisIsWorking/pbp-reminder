@@ -1,84 +1,96 @@
 {
-  "group_id": -1001661053273,
-  "alert_after_hours": 12,
-  "gm_user_ids": [
-    1698524397
-  ],
-  "leaderboard_topic_id": 79962,
-  "topic_pairs": [
-    {
-      "name": "Doomsday Funtime",
-      "chat_topic_id": 21514,
-      "created": "2023-07-14",
-      "pbp_topic_ids": [
-        25059
-      ]
-    },
-    {
-      "name": "Riddleport",
-      "chat_topic_id": 91008,
-      "created": "2024-12-20",
-      "pbp_topic_ids": [
-        66154,
-        133428
-      ]
-    },
-    {
-      "name": "Magni Watch",
-      "chat_topic_id": 75826,
-      "created": "2025-03-04",
-      "pbp_topic_ids": [
-        76799
-      ]
-    },
-    {
-      "name": "Grand Explorers",
-      "chat_topic_id": 47889,
-      "created": "2024-08-20",
-      "pbp_topic_ids": [
-        51357
-      ]
-    },
-    {
-      "name": "Kibwe",
-      "chat_topic_id": 21528,
-      "created": "2024-04-17",
-      "pbp_topic_ids": [
-        40585
-      ]
-    },
-    {
-      "name": "Hopeful End-Times",
-      "chat_topic_id": 50890,
-      "created": "2024-08-26",
-      "pbp_topic_ids": [
-        52083
-      ]
-    },
-    {
-      "name": "Metal City",
-      "chat_topic_id": 104202,
-      "created": "2025-09-04",
-      "pbp_topic_ids": [
-        107171
-      ]
-    }
-  ],
-  "settings": {
-    "roster_interval_days": 3,
-    "potw_interval_days": 7,
-    "potw_min_posts": 5,
-    "pace_interval_days": 7,
-    "leaderboard_interval_days": 3,
-    "combat_ping_hours": 4,
-    "recruitment_interval_days": 14,
-    "required_players": 6,
-    "post_session_minutes": 10,
-    "player_warn_weeks": [
-      1,
-      2,
-      3
+    "group_id": -1001661053273,
+    "alert_after_hours": 12,
+    "gm_user_ids": [
+        1698524397
     ],
-    "player_remove_weeks": 4
-  }
+    "leaderboard_topic_id": 79962,
+    "topic_pairs": [
+        {
+            "name": "Doomsday Funtime",
+            "chat_topic_id": 21514,
+            "created": "2023-07-14",
+            "pbp_topic_ids": [
+                25059
+            ]
+        },
+        {
+            "name": "Riddleport",
+            "chat_topic_id": 91008,
+            "created": "2024-12-20",
+            "pbp_topic_ids": [
+                66154,
+                133428
+            ]
+        },
+        {
+            "name": "Magni Watch",
+            "chat_topic_id": 75826,
+            "created": "2025-03-04",
+            "pbp_topic_ids": [
+                76799
+            ]
+        },
+        {
+            "name": "Grand Explorers",
+            "chat_topic_id": 47889,
+            "created": "2024-08-20",
+            "pbp_topic_ids": [
+                51357
+            ]
+        },
+        {
+            "name": "Kibwe",
+            "chat_topic_id": 21528,
+            "created": "2024-04-17",
+            "pbp_topic_ids": [
+                40585
+            ]
+        },
+        {
+            "name": "Hopeful End-Times",
+            "chat_topic_id": 50890,
+            "created": "2024-08-26",
+            "pbp_topic_ids": [
+                52083
+            ]
+        },
+        {
+            "name": "Metal City",
+            "chat_topic_id": 104202,
+            "created": "2025-09-04",
+            "pbp_topic_ids": [
+                107171
+            ]
+        },
+        {
+            "name": "Theria",
+            "chat_topic_id": 107141,
+            "created": "2025-09-04",
+            "pbp_topic_ids": [
+                107151
+            ],
+            "disabled_features": [
+                "warnings",
+                "recruitment"
+            ]
+        }
+    ],
+    "settings": {
+        "roster_interval_days": 3,
+        "potw_interval_days": 7,
+        "potw_min_posts": 5,
+        "pace_interval_days": 7,
+        "leaderboard_interval_days": 3,
+        "combat_ping_hours": 4,
+        "recruitment_interval_days": 14,
+        "required_players": 6,
+        "post_session_minutes": 10,
+        "player_warn_weeks": [
+            1,
+            2,
+            3
+        ],
+        "player_remove_weeks": 4
+    }
 }
