@@ -22,7 +22,7 @@ jobs:
         run: pip install requests
 
       - name: Run tests
-        run: cd scripts && python test_helpers.py && python test_checker.py
+        run: cd scripts && python test_helpers.py && python test_checker.py && python test_import_history.py
 
       - name: Run inactivity checker
         env:

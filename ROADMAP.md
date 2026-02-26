@@ -73,11 +73,23 @@ counts for the last 8 weeks as a text sparkline chart.
 
 ---
 
-## v1.5.0 — GM Tools (partially complete)
+## v1.5.0 — History Import & Per-Campaign GMs
+
+### ✅ Historical transcript backfill
+`scripts/import_history.py` imports past PBP messages from Telegram Desktop
+JSON exports into `data/pbp_logs/`. Idempotent, supports `--dry-run`.
+
+### ✅ Per-campaign GM overrides
+Optional `gm_user_ids` on individual topic_pairs replaces the global list
+for that campaign. Allows different GMs per campaign (e.g. Theria).
 
 ### ✅ `/pause` and `/resume`
 Temporarily disable inactivity tracking for planned breaks, holidays,
 or between arcs. Pause reason displayed in `/status` and `/campaign`.
+
+---
+
+## v1.6.0 — GM Tools
 
 ### 📋 `/kick <player>`
 Manually remove a player from tracking without waiting for the 4-week

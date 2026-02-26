@@ -309,8 +309,10 @@ scripts/
   telegram.py           # Telegram Bot API wrapper
   state.py              # Gist-based state persistence
   post_changelog.py     # Changelog parser and Telegram poster
-  test_helpers.py       # Test suite for helpers (34 tests)
+  test_helpers.py       # Test suite for helpers (37 tests)
   test_checker.py       # Test suite for checker (101 tests)
+  test_import_history.py # Test suite for import (16 tests)
+  import_history.py     # Historical transcript backfill from Telegram export
 config.json             # Your configuration
 config.example.json     # Template configuration
 boons.json              # Flavour boons for POTW (optional)
@@ -324,6 +326,42 @@ data/
 VERSION                 # Current semver version
 CHANGELOG.md            # Release notes
 ```
+
+---
+
+## Importing Historical Messages
+
+The bot only logs messages going forward. To backfill transcripts with
+historical PBP messages, export the chat from Telegram Desktop and run
+the import script.
+
+### Steps
+
+1. **Export from Telegram Desktop:**
+   - Settings → Advanced → Export chat history
+   - Select the Path_Wars supergroup
+   - Format: **Machine-readable JSON**
+   - Uncheck everything except "Text messages" (media metadata is preserved)
+   - Click Export
+
+2. **Run the import script:**
+   ```bash
+   # Preview what would be imported (no files written)
+   python3 scripts/import_history.py path/to/result.json --dry-run
+
+   # Actually import
+   python3 scripts/import_history.py path/to/result.json
+   ```
+
+3. **Commit the transcripts:**
+   ```bash
+   git add data/pbp_logs
+   git commit -m "Import historical PBP transcripts"
+   git push
+   ```
+
+The script is idempotent — safe to run multiple times on the same export.
+It tracks imported message IDs per campaign and only appends new ones.
 
 ---
 

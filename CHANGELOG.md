@@ -11,6 +11,36 @@ Versioning: [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.5.0] - 2026-02-26
+
+### Summary
+Historical transcript backfill. A new import script reads Telegram Desktop
+JSON exports and populates the transcript archive with all past PBP messages.
+Also adds Theria (C08) to the tracked campaigns with per-campaign GM support.
+
+### Added — History Import
+- `scripts/import_history.py`: imports historical PBP messages from Telegram
+  Desktop JSON exports into the same `data/pbp_logs/` format the live bot uses.
+- Supports `--dry-run` to preview without writing files.
+- Idempotent: tracks imported message IDs per campaign, safe to run repeatedly.
+- Handles Telegram's mixed text/entity format, media detection, GM tagging.
+- 16 tests for the import script.
+
+### Added — Theria (C08)
+- New campaign: PBP topic 107151, Chat topic 107141, started 2025-10-06.
+- Disabled features: warnings, recruitment (not Lewis's campaign).
+- Per-campaign `gm_user_ids` override: when a campaign has its own `gm_user_ids`
+  in config, it replaces the global list for that campaign only. All 8 functions
+  that check GM status now use per-campaign resolution.
+- 3 new helper tests for `gm_ids_for_campaign`.
+
+### Tests
+- 16 new import tests + 3 new helper tests.
+- Total: 154 tests (37 helpers + 101 checker + 16 import).
+- CI updated to run import tests.
+
+---
+
 ## [1.4.0] - 2026-02-26
 
 ### Summary
