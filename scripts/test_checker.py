@@ -1963,6 +1963,45 @@ def test_catchup_with_combat():
 
 
 # ------------------------------------------------------------------ #
+#  /overview tests
+# ------------------------------------------------------------------ #
+def test_overview_multi_campaign():
+    _reset()
+    now = datetime.now(timezone.utc)
+    config = {
+        "group_id": -100,
+        "gm_user_ids": [999],
+        "topic_pairs": [
+            {"name": "Campaign A", "chat_topic_id": 200, "pbp_topic_ids": [100]},
+            {"name": "Campaign B", "chat_topic_id": 400, "pbp_topic_ids": [300]},
+        ],
+    }
+    state = _make_state()
+    state["topics"]["100"] = {
+        "last_message_time": (now - timedelta(hours=2)).isoformat(),
+        "last_user": "Alice", "last_user_id": "42",
+        "campaign_name": "Campaign A",
+    }
+    state["topics"]["300"] = {
+        "last_message_time": (now - timedelta(days=3)).isoformat(),
+        "last_user": "Bob", "last_user_id": "50",
+        "campaign_name": "Campaign B",
+    }
+    state["players"]["100:42"] = {
+        "user_id": "42", "first_name": "Alice", "last_name": "",
+        "username": "", "campaign_name": "Campaign A",
+        "pbp_topic_id": "100", "last_post_time": now.isoformat(),
+        "last_warned_week": 0,
+    }
+
+    result = checker._build_overview(config, state)
+    assert "Campaign A" in result
+    assert "Campaign B" in result
+    assert "2 campaigns" in result
+    assert "1 active players" in result
+
+
+# ------------------------------------------------------------------ #
 #  Runner
 # ------------------------------------------------------------------ #
 def _run_all():

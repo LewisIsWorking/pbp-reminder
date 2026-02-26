@@ -143,6 +143,7 @@ _HELP_TEXT = (
     "Everyone:\n"
     "/help - Show this message\n"
     "/status - Campaign health snapshot\n"
+    "/overview - All campaigns at a glance\n"
     "/campaign - Full scoreboard with roster and stats\n"
     "/mystats - Your personal stats (also: /me)\n"
     "/myhistory - 8-week posting sparkline\n"
@@ -487,6 +488,82 @@ def _build_catchup(pid: str, user_id: str, campaign_name: str,
         phase = combat.get("phase", "?")
         lines.append(f"")
         lines.append(f"⚔️ Combat is active (Round {round_num}, {phase})")
+
+    return "\n".join(lines)
+
+
+def _build_overview(config: dict, state: dict) -> str:
+    """Build a compact cross-campaign overview for /overview command."""
+    now = datetime.now(timezone.utc)
+    week_ago = now - timedelta(days=7)
+    maps = build_topic_maps(config)
+
+    lines = ["Path Wars — Campaign Overview:", ""]
+
+    total_posts_all = 0
+    total_players_all = 0
+    campaigns_data = []
+
+    for pid, name in maps.to_name.items():
+        gm_ids = helpers.gm_ids_for_campaign(config, pid)
+        topic_ts = helpers.get_topic_timestamps(state, pid)
+        topic_state = state.get("topics", {}).get(pid)
+
+        # Weekly posts
+        gm_week = player_week = 0
+        for uid, timestamps in topic_ts.items():
+            count = len(timestamps_in_window(timestamps, week_ago))
+            if uid in gm_ids:
+                gm_week += count
+            else:
+                player_week += count
+        total_week = gm_week + player_week
+        total_posts_all += total_week
+
+        # Last post age
+        if topic_state:
+            last_time = datetime.fromisoformat(topic_state["last_message_time"])
+            hours = helpers.hours_since(now, last_time)
+            if hours < 1:
+                age = "<1h"
+            elif hours < 24:
+                age = f"{int(hours)}h"
+            else:
+                age = f"{int(hours / 24)}d"
+        else:
+            age = "—"
+
+        # Player count
+        players = [p for p in state.get("players", {}).values()
+                    if p.get("pbp_topic_id") == pid]
+        player_count = len(players)
+        total_players_all += player_count
+
+        # Combat
+        combat = state.get("combat", {}).get(pid, {})
+        combat_flag = " ⚔️" if combat.get("active") else ""
+
+        # Paused
+        paused = state.get("paused_campaigns", {}).get(pid)
+        pause_flag = " ⏸️" if paused else ""
+
+        # Health icon
+        health = _health_icon(total_week)
+
+        campaigns_data.append({
+            "name": name, "total": total_week, "players": player_count,
+            "age": age, "combat": combat_flag, "pause": pause_flag,
+            "health": health,
+        })
+
+    for c in campaigns_data:
+        line = f"{c['health']} {c['name']}: {posts_str(c['total'])} this week"
+        line += f" | {c['players']} players | Last: {c['age']}"
+        line += c["combat"] + c["pause"]
+        lines.append(line)
+
+    lines.append("")
+    lines.append(f"Total: {posts_str(total_posts_all)} across {len(campaigns_data)} campaigns, {total_players_all} active players")
 
     return "\n".join(lines)
 
@@ -1063,6 +1140,11 @@ def process_updates(updates: list, config: dict, state: dict) -> int:
         if text == "/status":
             status = _build_status(pid, campaign_name, state, gm_ids)
             tg.send_message(group_id, thread_id, status)
+
+        # ---- /overview command ----
+        if text == "/overview":
+            overview = _build_overview(config, state)
+            tg.send_message(group_id, thread_id, overview)
 
         # ---- /campaign command ----
         if text == "/campaign":
