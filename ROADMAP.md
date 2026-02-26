@@ -145,6 +145,20 @@ flag (enabled by default). Use `/pause` to silence during planned breaks.
 
 ---
 
+## v2.1.0 — Scene Markers & GM Notes
+
+### ✅ Scene markers
+`/scene <n>` marks a narrative scene boundary in the campaign's
+transcript file. Creates a styled divider with timestamp. Scene name
+displayed in `/status` and `/campaign` output.
+
+### ✅ GM notes
+`/note <text>` adds persistent notes per campaign (max 20). View
+with `/notes`, delete with `/delnote <N>`. Latest notes shown in
+`/campaign` output. All players can view, only GMs can add/remove.
+
+---
+
 ## Future Ideas (unscheduled)
 
 ### 💡 AI summaries (revisited)

@@ -245,11 +245,15 @@ The bot responds to these commands in any monitored PBP topic:
 
 **Everyone:**
 - `/help` - List bot features and commands.
-- `/status` - Campaign health snapshot: party size, last post, posts this week, at-risk players.
-- `/campaign` - Full scoreboard: header, weekly pace with trends, complete roster with stats, at-risk warnings, combat state.
+- `/status` - Campaign health snapshot: party size, last post, posts this week, at-risk players, current scene.
+- `/campaign` - Full scoreboard: header, weekly pace with trends, complete roster with stats, at-risk warnings, combat state, scene, notes.
 - `/mystats` (alias `/me`) - Your personal stats: total posts, sessions, average gap, weekly count, streak.
 - `/myhistory` - 8-week posting sparkline with trend.
 - `/whosturn` - Combat status: who has acted, who the party is waiting on.
+- `/catchup` - What happened since your last post.
+- `/overview` - Compact summary of all campaigns.
+- `/party` - In-fiction party composition (requires character config).
+- `/notes` - View GM notes for the current campaign.
 
 ### GM commands
 
@@ -258,6 +262,11 @@ The bot responds to these commands in any monitored PBP topic:
 - `/endcombat` - End combat tracking.
 - `/pause [reason]` - Pause inactivity tracking (for breaks, holidays, between arcs).
 - `/resume` - Resume inactivity tracking.
+- `/kick @player` - Remove a player from tracking.
+- `/addplayer @user Name` - Pre-register a player before they post.
+- `/scene <n>` - Mark a scene boundary in the transcript.
+- `/note <text>` - Add a persistent GM note (max 20 per campaign).
+- `/delnote <N>` - Delete a GM note by number.
 
 ## Versioning
 

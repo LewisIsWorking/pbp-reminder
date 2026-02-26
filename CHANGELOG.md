@@ -11,6 +11,40 @@ Versioning: [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.1.0] - 2026-02-26
+
+### Summary
+Scene markers and GM notes. GMs can now mark narrative scene boundaries
+in transcripts and maintain persistent notes per campaign.
+
+### Added — Scene markers
+- **`/scene <name>`** (GM only): marks a scene boundary in the campaign's
+  transcript file with a styled divider. Scene name stored in state and
+  displayed in `/status` and `/campaign` output.
+- Transcript entries: `### 🎭 Scene: <name>` with timestamp, surrounded
+  by horizontal rules for clear visual separation.
+
+### Added — GM notes
+- **`/note <text>`** (GM only): adds a persistent note to the campaign.
+  Max 20 notes per campaign. Timestamped on creation.
+- **`/notes`** (everyone): view all GM notes for the current campaign,
+  numbered with creation dates.
+- **`/delnote <N>`** (GM only): delete a note by its number.
+- Latest 3 notes shown in `/campaign` output with "see all" hint.
+
+### Added
+- 2 new daily tips (scene markers, GM notes).
+- New state fields: `current_scenes`, `campaign_notes`.
+
+### Tests
+- 14 new tests: scene command, scene no-name, scene non-GM, scene in
+  status, scene in campaign, note command, note no-text, note max limit,
+  notes command, notes empty, delnote, delnote invalid, notes in campaign,
+  write_scene_marker transcript.
+- Total: 200 tests (37 helpers + 145 checker + 18 import).
+
+---
+
 ## [2.0.0] - 2026-02-26
 
 ### Summary

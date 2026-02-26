@@ -2363,6 +2363,296 @@ def test_conversation_dying_skips_paused():
 
 
 # ------------------------------------------------------------------ #
+#  v2.1.0: Scene markers & GM notes
+# ------------------------------------------------------------------ #
+def test_scene_command():
+    """GM /scene sets current scene and writes to transcript."""
+    _reset()
+    config = _make_config()
+    state = _make_state()
+    now_ts = int(datetime.now(timezone.utc).timestamp())
+
+    updates = [{
+        "update_id": 9100,
+        "message": {
+            "chat": {"id": -100},
+            "message_thread_id": 100,
+            "from": {"id": 999, "first_name": "GM"},
+            "date": now_ts,
+            "text": "/scene The Docks at Midnight",
+        },
+    }]
+
+    checker.process_updates(updates, config, state)
+    assert state.get("current_scenes", {}).get("100") == "The Docks at Midnight"
+    scene_msgs = [m for m in _sent_messages if "Scene" in m.get("text", "")]
+    assert len(scene_msgs) >= 1
+
+
+def test_scene_no_name():
+    """GM /scene with no name shows usage."""
+    _reset()
+    config = _make_config()
+    state = _make_state()
+    now_ts = int(datetime.now(timezone.utc).timestamp())
+
+    updates = [{
+        "update_id": 9101,
+        "message": {
+            "chat": {"id": -100},
+            "message_thread_id": 100,
+            "from": {"id": 999, "first_name": "GM"},
+            "date": now_ts,
+            "text": "/scene",
+        },
+    }]
+
+    checker.process_updates(updates, config, state)
+    assert "100" not in state.get("current_scenes", {})
+    usage_msgs = [m for m in _sent_messages if "Usage" in m.get("text", "")]
+    assert len(usage_msgs) >= 1
+
+
+def test_scene_non_gm_ignored():
+    """Non-GM /scene is ignored."""
+    _reset()
+    config = _make_config()
+    state = _make_state()
+    now_ts = int(datetime.now(timezone.utc).timestamp())
+
+    updates = [{
+        "update_id": 9102,
+        "message": {
+            "chat": {"id": -100},
+            "message_thread_id": 100,
+            "from": {"id": 42, "first_name": "Player"},
+            "date": now_ts,
+            "text": "/scene Sneaky Scene",
+        },
+    }]
+
+    checker.process_updates(updates, config, state)
+    assert "100" not in state.get("current_scenes", {})
+
+
+def test_scene_shows_in_status():
+    """Scene name appears in /status output."""
+    _reset()
+    config = _make_config()
+    state = _make_state()
+    state["current_scenes"] = {"100": "The Haunted Chapel"}
+    result = checker._build_status("100", "TestCampaign", state, {999})
+    assert "The Haunted Chapel" in result
+
+
+def test_note_command():
+    """GM /note adds a persistent note."""
+    _reset()
+    config = _make_config()
+    state = _make_state()
+    now_ts = int(datetime.now(timezone.utc).timestamp())
+
+    updates = [{
+        "update_id": 9110,
+        "message": {
+            "chat": {"id": -100},
+            "message_thread_id": 100,
+            "from": {"id": 999, "first_name": "GM"},
+            "date": now_ts,
+            "text": "/note Party agreed to meet the informant at dawn",
+        },
+    }]
+
+    checker.process_updates(updates, config, state)
+    notes = state.get("campaign_notes", {}).get("100", [])
+    assert len(notes) == 1
+    assert notes[0]["text"] == "Party agreed to meet the informant at dawn"
+    saved_msgs = [m for m in _sent_messages if "saved" in m.get("text", "").lower()]
+    assert len(saved_msgs) >= 1
+
+
+def test_note_no_text():
+    """GM /note with no text shows usage."""
+    _reset()
+    config = _make_config()
+    state = _make_state()
+    now_ts = int(datetime.now(timezone.utc).timestamp())
+
+    updates = [{
+        "update_id": 9111,
+        "message": {
+            "chat": {"id": -100},
+            "message_thread_id": 100,
+            "from": {"id": 999, "first_name": "GM"},
+            "date": now_ts,
+            "text": "/note",
+        },
+    }]
+
+    checker.process_updates(updates, config, state)
+    assert len(state.get("campaign_notes", {}).get("100", [])) == 0
+
+
+def test_note_max_limit():
+    """Notes capped at 20 per campaign."""
+    _reset()
+    config = _make_config()
+    state = _make_state()
+    state["campaign_notes"] = {"100": [
+        {"text": f"Note {i}", "created_at": "2026-01-01T00:00:00+00:00"}
+        for i in range(20)
+    ]}
+    now_ts = int(datetime.now(timezone.utc).timestamp())
+
+    updates = [{
+        "update_id": 9112,
+        "message": {
+            "chat": {"id": -100},
+            "message_thread_id": 100,
+            "from": {"id": 999, "first_name": "GM"},
+            "date": now_ts,
+            "text": "/note One too many",
+        },
+    }]
+
+    checker.process_updates(updates, config, state)
+    assert len(state["campaign_notes"]["100"]) == 20
+    max_msgs = [m for m in _sent_messages if "Maximum" in m.get("text", "")]
+    assert len(max_msgs) >= 1
+
+
+def test_notes_command():
+    """Anyone can view notes with /notes."""
+    _reset()
+    config = _make_config()
+    state = _make_state()
+    state["campaign_notes"] = {"100": [
+        {"text": "First note", "created_at": "2026-01-15T10:00:00+00:00"},
+        {"text": "Second note", "created_at": "2026-01-16T10:00:00+00:00"},
+    ]}
+    now_ts = int(datetime.now(timezone.utc).timestamp())
+
+    updates = [{
+        "update_id": 9113,
+        "message": {
+            "chat": {"id": -100},
+            "message_thread_id": 100,
+            "from": {"id": 42, "first_name": "Player"},
+            "date": now_ts,
+            "text": "/notes",
+        },
+    }]
+
+    checker.process_updates(updates, config, state)
+    notes_msgs = [m for m in _sent_messages if "First note" in m.get("text", "")]
+    assert len(notes_msgs) >= 1
+
+
+def test_notes_empty():
+    """/notes with no notes shows helpful message."""
+    _reset()
+    result = checker._build_notes("100", "TestCampaign", {})
+    assert "No GM notes" in result
+
+
+def test_delnote_command():
+    """GM /delnote removes a note by number."""
+    _reset()
+    config = _make_config()
+    state = _make_state()
+    state["campaign_notes"] = {"100": [
+        {"text": "Keep this", "created_at": "2026-01-15T10:00:00+00:00"},
+        {"text": "Delete this", "created_at": "2026-01-16T10:00:00+00:00"},
+    ]}
+    now_ts = int(datetime.now(timezone.utc).timestamp())
+
+    updates = [{
+        "update_id": 9114,
+        "message": {
+            "chat": {"id": -100},
+            "message_thread_id": 100,
+            "from": {"id": 999, "first_name": "GM"},
+            "date": now_ts,
+            "text": "/delnote 2",
+        },
+    }]
+
+    checker.process_updates(updates, config, state)
+    notes = state["campaign_notes"]["100"]
+    assert len(notes) == 1
+    assert notes[0]["text"] == "Keep this"
+    del_msgs = [m for m in _sent_messages if "Deleted" in m.get("text", "")]
+    assert len(del_msgs) >= 1
+
+
+def test_delnote_invalid_number():
+    """GM /delnote with invalid number shows error."""
+    _reset()
+    config = _make_config()
+    state = _make_state()
+    state["campaign_notes"] = {"100": [
+        {"text": "A note", "created_at": "2026-01-15T10:00:00+00:00"},
+    ]}
+    now_ts = int(datetime.now(timezone.utc).timestamp())
+
+    updates = [{
+        "update_id": 9115,
+        "message": {
+            "chat": {"id": -100},
+            "message_thread_id": 100,
+            "from": {"id": 999, "first_name": "GM"},
+            "date": now_ts,
+            "text": "/delnote 5",
+        },
+    }]
+
+    checker.process_updates(updates, config, state)
+    assert len(state["campaign_notes"]["100"]) == 1
+    err_msgs = [m for m in _sent_messages if "not found" in m.get("text", "")]
+    assert len(err_msgs) >= 1
+
+
+def test_scene_shows_in_campaign():
+    """Scene name appears in /campaign output."""
+    _reset()
+    config = _make_config()
+    state = _make_state()
+    state["current_scenes"] = {"100": "The Grand Library"}
+    result = checker._build_campaign_report("100", config, state, {999})
+    assert "The Grand Library" in result
+
+
+def test_notes_show_in_campaign():
+    """Notes appear in /campaign output."""
+    _reset()
+    config = _make_config()
+    state = _make_state()
+    state["campaign_notes"] = {"100": [
+        {"text": "Remember the artifact", "created_at": "2026-01-15T10:00:00+00:00"},
+    ]}
+    result = checker._build_campaign_report("100", config, state, {999})
+    assert "Remember the artifact" in result
+
+
+def test_write_scene_marker():
+    """Scene marker writes correct markdown to transcript."""
+    import tempfile, pathlib
+    original_dir = checker._LOGS_DIR
+    with tempfile.TemporaryDirectory() as tmp:
+        checker._LOGS_DIR = pathlib.Path(tmp)
+        try:
+            checker._write_scene_marker("Test Campaign", "The Final Battle")
+            campaign_dir = pathlib.Path(tmp) / "Test_Campaign"
+            assert campaign_dir.exists()
+            md_files = list(campaign_dir.glob("*.md"))
+            assert len(md_files) == 1
+            content = md_files[0].read_text()
+            assert "### 🎭 Scene: The Final Battle" in content
+        finally:
+            checker._LOGS_DIR = original_dir
+
+
+# ------------------------------------------------------------------ #
 #  Runner
 # ------------------------------------------------------------------ #
 def _run_all():

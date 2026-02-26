@@ -139,6 +139,9 @@ _HELP_TEXT = (
     "/resume - Resume inactivity tracking\n"
     "/kick @player - Remove a player from tracking\n"
     "/addplayer @user Name - Add a player to roster before they post\n"
+    "/scene <name> - Mark a scene boundary in the transcript\n"
+    "/note <text> - Add a persistent GM note to this campaign\n"
+    "/delnote <N> - Delete a GM note by number\n"
     "\n"
     "Everyone:\n"
     "/help - Show this message\n"
@@ -149,7 +152,8 @@ _HELP_TEXT = (
     "/myhistory - 8-week posting sparkline\n"
     "/whosturn - Who has acted in combat and who hasn't\n"
     "/catchup - What happened since you last posted\n"
-    "/party - In-fiction party composition"
+    "/party - In-fiction party composition\n"
+    "/notes - View GM notes for this campaign"
 )
 
 
@@ -217,6 +221,10 @@ def _build_status(pid: str, campaign_name: str, state: dict, gm_ids: set) -> str
     paused = state.get("paused_campaigns", {}).get(pid)
     if paused:
         lines.append(f"⏸️ PAUSED: {paused.get('reason', 'No reason')}")
+
+    scene = state.get("current_scenes", {}).get(pid)
+    if scene:
+        lines.append(f"🎭 Scene: {scene}")
 
     return "\n".join(lines)
 
@@ -319,6 +327,20 @@ def _build_campaign_report(pid: str, config: dict, state: dict, gm_ids: set) -> 
         lines.append(f"\n⚔️ Combat: Round {combat['round']}, {combat['current_phase']}' turn")
         if missing and combat["current_phase"] == "players":
             lines.append(f"Waiting on: {', '.join(missing)}")
+
+    # Current scene
+    scene = state.get("current_scenes", {}).get(pid)
+    if scene:
+        lines.append(f"\n🎭 Scene: {scene}")
+
+    # GM notes
+    notes = state.get("campaign_notes", {}).get(pid, [])
+    if notes:
+        lines.append(f"\n📝 Notes ({len(notes)}):")
+        for i, note in enumerate(notes[-3:], start=max(1, len(notes) - 2)):
+            lines.append(f"  {i}. {note['text']}")
+        if len(notes) > 3:
+            lines.append(f"  … and {len(notes) - 3} more (/notes to see all)")
 
     return "\n".join(lines)
 
@@ -629,6 +651,46 @@ def _build_overview(config: dict, state: dict) -> str:
     return "\n".join(lines)
 
 
+def _build_notes(pid: str, campaign_name: str, state: dict) -> str:
+    """Build the notes list for /notes command."""
+    notes = state.get("campaign_notes", {}).get(pid, [])
+    if not notes:
+        return f"No GM notes for {campaign_name}.\nGMs can add notes with /note <text>"
+
+    lines = [f"📝 GM Notes — {campaign_name}:", ""]
+    for i, note in enumerate(notes, 1):
+        created = note.get("created_at", "")[:10]  # YYYY-MM-DD
+        lines.append(f"{i}. {note['text']}")
+        if created:
+            lines.append(f"   ({created})")
+    lines.append("")
+    lines.append(f"{len(notes)}/20 notes. GMs: /note <text> to add, /delnote <N> to remove.")
+    return "\n".join(lines)
+
+
+_MAX_NOTES_PER_CAMPAIGN = 20
+
+
+def _write_scene_marker(campaign_name: str, scene_name: str) -> None:
+    """Write a scene boundary marker to the campaign's transcript file."""
+    dir_name = _sanitize_dirname(campaign_name)
+    campaign_dir = _LOGS_DIR / dir_name
+    campaign_dir.mkdir(parents=True, exist_ok=True)
+
+    now = datetime.now(timezone.utc)
+    month_str = now.strftime("%Y-%m")
+    log_file = campaign_dir / f"{month_str}.md"
+
+    is_new = not log_file.exists()
+
+    with open(log_file, "a", encoding="utf-8") as f:
+        if is_new:
+            f.write(f"# {campaign_name} — {month_str}\n\n")
+            f.write("*PBP transcript archived by PathWarsNudge bot.*\n\n---\n\n")
+        ts = now.strftime("%Y-%m-%d %H:%M")
+        f.write(f"\n---\n\n### 🎭 Scene: {scene_name}\n*({ts})*\n\n---\n\n")
+
+
 def _calc_streak(raw_timestamps: list[str], now: datetime) -> int:
     """Count consecutive days with at least one post, ending at today or yesterday.
 
@@ -771,6 +833,14 @@ _TIPS = [
     "💡 <b>/overview</b> — See a compact summary of ALL campaigns at once: "
     "health status, weekly posts, player count, and last post time. "
     "Perfect for GMs juggling multiple games.",
+
+    "💡 <b>/scene</b> (GM only) — Mark a scene boundary in the transcript. "
+    "Type <code>/scene The Docks at Midnight</code> and it'll appear as a divider "
+    "in the archived logs. Keeps your campaign history organised by narrative beats.",
+
+    "💡 <b>/note</b> (GM only) — Keep persistent notes for any campaign. "
+    "Type <code>/note Party agreed to meet the informant at dawn</code>. "
+    "View with /notes, delete with /delnote. Notes also appear in /campaign output.",
 ]
 
 
@@ -1297,6 +1367,59 @@ def process_updates(updates: list, config: dict, state: dict) -> int:
                                 "e.g. /addplayer @alice Alice Smith")
             else:
                 _handle_addplayer(pid, campaign_name, raw_args, now_iso, state, group_id, thread_id)
+
+        # ---- /scene command (GM only) ----
+        if text.startswith("/scene") and user_id in gm_ids:
+            scene_name = parsed["raw_text"][6:].strip()
+            if not scene_name:
+                tg.send_message(group_id, thread_id,
+                                "Usage: /scene <name>\ne.g. /scene The Docks at Midnight")
+            else:
+                state.setdefault("current_scenes", {})[pid] = scene_name
+                _write_scene_marker(campaign_name, scene_name)
+                tg.send_message(group_id, thread_id,
+                                f"🎭 Scene: {scene_name}\nMarked in transcript.")
+                print(f"Scene marker in {campaign_name}: {scene_name}")
+
+        # ---- /note command (GM only) ----
+        if text.startswith("/note") and not text.startswith("/notes") and user_id in gm_ids:
+            note_text = parsed["raw_text"][5:].strip()
+            if not note_text:
+                tg.send_message(group_id, thread_id,
+                                "Usage: /note <text>\ne.g. /note Party agreed to meet the informant at dawn")
+            else:
+                notes = state.setdefault("campaign_notes", {}).setdefault(pid, [])
+                if len(notes) >= _MAX_NOTES_PER_CAMPAIGN:
+                    tg.send_message(group_id, thread_id,
+                                    f"Maximum {_MAX_NOTES_PER_CAMPAIGN} notes reached. Use /delnote <N> to remove old ones.")
+                else:
+                    notes.append({"text": note_text, "created_at": now_iso})
+                    tg.send_message(group_id, thread_id,
+                                    f"📝 Note #{len(notes)} saved.")
+                    print(f"Note added to {campaign_name}: {note_text[:50]}")
+
+        # ---- /notes command (everyone) ----
+        if text == "/notes":
+            notes_report = _build_notes(pid, campaign_name, state)
+            tg.send_message(group_id, thread_id, notes_report)
+
+        # ---- /delnote command (GM only) ----
+        if text.startswith("/delnote") and user_id in gm_ids:
+            num_str = parsed["raw_text"][8:].strip()
+            notes = state.get("campaign_notes", {}).get(pid, [])
+            try:
+                idx = int(num_str) - 1
+                if 0 <= idx < len(notes):
+                    removed = notes.pop(idx)
+                    tg.send_message(group_id, thread_id,
+                                    f"🗑️ Deleted note #{idx + 1}: {removed['text'][:60]}")
+                    print(f"Note deleted from {campaign_name}: {removed['text'][:50]}")
+                else:
+                    tg.send_message(group_id, thread_id,
+                                    f"Note #{num_str} not found. Use /notes to see current notes.")
+            except (ValueError, TypeError):
+                tg.send_message(group_id, thread_id,
+                                "Usage: /delnote <number>\ne.g. /delnote 3")
 
         # ---- Combat commands and tracking ----
         _handle_combat_message(
