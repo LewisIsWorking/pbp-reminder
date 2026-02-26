@@ -11,6 +11,41 @@ Versioning: [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.2.0] - 2026-02-26
+
+### Summary
+Activity insights. Track posting patterns and view cross-campaign player
+profiles. Know when your campaigns are most active.
+
+### Added — Activity tracking
+- Every message now records hour-of-day and day-of-week counters in
+  `activity_hours` and `activity_days` state fields. Lightweight
+  permanent counters (24 hour buckets + 7 day buckets per user per
+  campaign) that never need pruning.
+
+### Added — `/activity` command
+- Shows campaign-level posting patterns: busiest days (bar chart),
+  busiest time blocks, peak hour, and top 3 most active posters.
+- Available to all players and GMs.
+
+### Added — `/profile` command
+- Cross-campaign player lookup: `/profile @alice` or `/profile Alice`.
+- Shows every campaign the player is in: post counts, character names,
+  last activity, and active streaks.
+- Matches by username, first name, or full name (case-insensitive).
+- Works for any player in any monitored campaign.
+
+### Added
+- 2 new daily tips (activity patterns, player profiles).
+
+### Tests
+- 8 new tests: activity tracking counters, activity command, activity
+  empty, activity via message, profile command, profile not found,
+  profile no target, profile cross-campaign.
+- Total: 208 tests (37 helpers + 153 checker + 18 import).
+
+---
+
 ## [2.1.0] - 2026-02-26
 
 ### Summary

@@ -159,6 +159,23 @@ with `/notes`, delete with `/delnote <N>`. Latest notes shown in
 
 ---
 
+## v2.2.0 — Activity Insights
+
+### ✅ Activity tracking
+Every message records hour-of-day and day-of-week counters.
+Permanent lightweight data (24 + 7 buckets per user per campaign).
+
+### ✅ `/activity` command
+Campaign-level posting patterns: busiest days, peak time blocks,
+peak hour, and top posters. Available to everyone.
+
+### ✅ `/profile` command
+Cross-campaign player lookup. Shows every campaign a player is in
+with post counts, character names, last activity, and streaks.
+Matches by username, first name, or full name.
+
+---
+
 ## Future Ideas (unscheduled)
 
 ### 💡 AI summaries (revisited)

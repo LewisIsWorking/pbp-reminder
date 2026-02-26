@@ -153,7 +153,9 @@ _HELP_TEXT = (
     "/whosturn - Who has acted in combat and who hasn't\n"
     "/catchup - What happened since you last posted\n"
     "/party - In-fiction party composition\n"
-    "/notes - View GM notes for this campaign"
+    "/notes - View GM notes for this campaign\n"
+    "/activity - Posting patterns: busiest hours and days\n"
+    "/profile @player - Cross-campaign stats for a player"
 )
 
 
@@ -691,6 +693,148 @@ def _write_scene_marker(campaign_name: str, scene_name: str) -> None:
         f.write(f"\n---\n\n### 🎭 Scene: {scene_name}\n*({ts})*\n\n---\n\n")
 
 
+_DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+_HOUR_BLOCKS = {
+    "Night (00-05)": range(0, 6),
+    "Morning (06-11)": range(6, 12),
+    "Afternoon (12-17)": range(12, 18),
+    "Evening (18-23)": range(18, 24),
+}
+
+
+def _build_activity(pid: str, campaign_name: str, state: dict, gm_ids: set) -> str:
+    """Build activity pattern report for /activity command."""
+    hours_data = state.get("activity_hours", {}).get(pid, {})
+    days_data = state.get("activity_days", {}).get(pid, {})
+
+    if not hours_data and not days_data:
+        return f"No activity data for {campaign_name} yet.\nPost some messages and check back!"
+
+    # Aggregate across all users (excluding GM optionally — include everyone)
+    hour_totals = {}
+    day_totals = {}
+    for uid, h in hours_data.items():
+        for hour, count in h.items():
+            hour_totals[int(hour)] = hour_totals.get(int(hour), 0) + count
+    for uid, d in days_data.items():
+        for day, count in d.items():
+            day_totals[int(day)] = day_totals.get(int(day), 0) + count
+
+    total_posts = sum(hour_totals.values())
+
+    lines = [f"📊 Activity Patterns — {campaign_name}", f"({total_posts} tracked posts)", ""]
+
+    # Best days
+    lines.append("Busiest days:")
+    sorted_days = sorted(day_totals.items(), key=lambda x: x[1], reverse=True)
+    for day_num, count in sorted_days:
+        pct = count / total_posts * 100 if total_posts else 0
+        bar_len = int(pct / 5)  # Each block = 5%
+        bar = "█" * bar_len
+        lines.append(f"  {_DAY_NAMES[day_num]:3s}  {bar} {count} ({pct:.0f}%)")
+
+    # Best time blocks
+    lines.append("")
+    lines.append("Busiest times (UTC):")
+    block_totals = {}
+    for block_name, hour_range in _HOUR_BLOCKS.items():
+        block_totals[block_name] = sum(hour_totals.get(h, 0) for h in hour_range)
+    sorted_blocks = sorted(block_totals.items(), key=lambda x: x[1], reverse=True)
+    for block_name, count in sorted_blocks:
+        pct = count / total_posts * 100 if total_posts else 0
+        bar_len = int(pct / 5)
+        bar = "█" * bar_len
+        lines.append(f"  {block_name:20s} {bar} {count} ({pct:.0f}%)")
+
+    # Peak hour
+    if hour_totals:
+        peak_hour = max(hour_totals, key=hour_totals.get)
+        lines.append(f"\nPeak hour: {peak_hour:02d}:00 UTC ({hour_totals[peak_hour]} posts)")
+
+    # Top 3 most active players
+    player_totals = {}
+    for uid, h in hours_data.items():
+        player_totals[uid] = sum(h.values())
+    sorted_players = sorted(player_totals.items(), key=lambda x: x[1], reverse=True)[:3]
+    if sorted_players:
+        lines.append("")
+        lines.append("Most active posters:")
+        players_map = {p["user_id"]: p for p in state.get("players", {}).values()
+                       if p.get("pbp_topic_id") == pid}
+        for uid, count in sorted_players:
+            name = "GM" if uid in gm_ids else players_map.get(uid, {}).get("first_name", uid)
+            lines.append(f"  {name}: {count} posts")
+
+    return "\n".join(lines)
+
+
+def _build_profile(target_name: str, config: dict, state: dict) -> str:
+    """Build cross-campaign profile for /profile command."""
+    # Find the target player across all campaigns
+    target_name_lower = target_name.lower().lstrip("@")
+    found_entries = []
+
+    for key, player in state.get("players", {}).items():
+        full_name = helpers.player_full_name(player).lower()
+        username = (player.get("username") or "").lower()
+        first_name = player.get("first_name", "").lower()
+
+        if (target_name_lower == username or
+                target_name_lower == first_name or
+                target_name_lower in full_name):
+            found_entries.append((key, player))
+
+    if not found_entries:
+        return f"No player matching '{target_name}' found across any campaign."
+
+    # Determine display name from first match
+    display_name = helpers.player_full_name(found_entries[0][1])
+    user_id = found_entries[0][1]["user_id"]
+
+    # Gather stats across all campaigns they're in
+    lines = [f"👤 {display_name}", ""]
+    total_posts = 0
+    total_campaigns = 0
+
+    for key, player in found_entries:
+        pid = player["pbp_topic_id"]
+        campaign_name = player["campaign_name"]
+        counts = state.get("message_counts", {}).get(pid, {})
+        post_count = counts.get(user_id, 0)
+        total_posts += post_count
+        total_campaigns += 1
+
+        # Last post
+        last_post = player.get("last_post_time", "")
+        if last_post:
+            last_dt = datetime.fromisoformat(last_post)
+            elapsed_h = helpers.hours_since(datetime.now(timezone.utc), last_dt)
+            if elapsed_h < 24:
+                last_str = f"{int(elapsed_h)}h ago"
+            else:
+                last_str = f"{int(elapsed_h / 24)}d ago"
+        else:
+            last_str = "unknown"
+
+        # Character name
+        char_name = helpers.character_name(config, pid, user_id)
+        char_tag = f" ({char_name})" if char_name else ""
+
+        # Streak
+        topic_ts = helpers.get_topic_timestamps(state, pid)
+        raw_ts = topic_ts.get(user_id, [])
+        streak = _calc_streak(raw_ts, datetime.now(timezone.utc))
+        streak_str = f" | 🔥 {streak}d streak" if streak >= 3 else ""
+
+        lines.append(f"📖 {campaign_name}{char_tag}")
+        lines.append(f"   {post_count} posts | Last: {last_str}{streak_str}")
+
+    lines.append("")
+    lines.append(f"Total: {total_posts} posts across {total_campaigns} campaign{'s' if total_campaigns != 1 else ''}")
+
+    return "\n".join(lines)
+
+
 def _calc_streak(raw_timestamps: list[str], now: datetime) -> int:
     """Count consecutive days with at least one post, ending at today or yesterday.
 
@@ -841,6 +985,14 @@ _TIPS = [
     "💡 <b>/note</b> (GM only) — Keep persistent notes for any campaign. "
     "Type <code>/note Party agreed to meet the informant at dawn</code>. "
     "View with /notes, delete with /delnote. Notes also appear in /campaign output.",
+
+    "💡 <b>/activity</b> — See when your campaign is most active: busiest days, "
+    "peak hours, and time blocks. Great for knowing when to expect replies "
+    "and when to post for maximum engagement.",
+
+    "💡 <b>/profile</b> — Look up any player across all campaigns. "
+    "Type <code>/profile @alice</code> to see their character, post counts, "
+    "streaks, and last activity in every game they're in.",
 ]
 
 
@@ -1403,6 +1555,21 @@ def process_updates(updates: list, config: dict, state: dict) -> int:
             notes_report = _build_notes(pid, campaign_name, state)
             tg.send_message(group_id, thread_id, notes_report)
 
+        # ---- /activity command (everyone) ----
+        if text == "/activity":
+            activity_report = _build_activity(pid, campaign_name, state, gm_ids)
+            tg.send_message(group_id, thread_id, activity_report)
+
+        # ---- /profile command (everyone) ----
+        if text.startswith("/profile"):
+            target = parsed["raw_text"][8:].strip()
+            if not target:
+                tg.send_message(group_id, thread_id,
+                                "Usage: /profile @username or /profile PlayerName")
+            else:
+                profile = _build_profile(target, config, state)
+                tg.send_message(group_id, thread_id, profile)
+
         # ---- /delnote command (GM only) ----
         if text.startswith("/delnote") and user_id in gm_ids:
             num_str = parsed["raw_text"][8:].strip()
@@ -1441,6 +1608,15 @@ def process_updates(updates: list, config: dict, state: dict) -> int:
 
         # Track post timestamps for Player of the Week gap calculation
         state["post_timestamps"].setdefault(pid, {}).setdefault(user_id, []).append(msg_time_iso)
+
+        # Track activity patterns (persistent hour/day counters)
+        msg_dt = datetime.fromisoformat(msg_time_iso)
+        hour_key = str(msg_dt.hour)
+        day_key = str(msg_dt.weekday())  # 0=Mon, 6=Sun
+        user_hours = state.setdefault("activity_hours", {}).setdefault(pid, {}).setdefault(user_id, {})
+        user_hours[hour_key] = user_hours.get(hour_key, 0) + 1
+        user_days = state.setdefault("activity_days", {}).setdefault(pid, {}).setdefault(user_id, {})
+        user_days[day_key] = user_days.get(day_key, 0) + 1
 
         # Update player-level tracking (skip GM)
         if user_id and user_id not in gm_ids:

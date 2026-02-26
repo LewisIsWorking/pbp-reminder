@@ -2653,6 +2653,182 @@ def test_write_scene_marker():
 
 
 # ------------------------------------------------------------------ #
+#  v2.2.0: Activity insights
+# ------------------------------------------------------------------ #
+def test_activity_tracking():
+    """Messages record hour and day counters in state."""
+    _reset()
+    config = _make_config()
+    state = _make_state()
+    # Use a known time: Wednesday (weekday=2) at 14:30 UTC
+    from datetime import datetime as dt
+    wed_14 = int(dt(2026, 2, 25, 14, 30, tzinfo=timezone.utc).timestamp())
+
+    updates = [{
+        "update_id": 9200,
+        "message": {
+            "chat": {"id": -100},
+            "message_thread_id": 100,
+            "from": {"id": 42, "first_name": "Alice"},
+            "date": wed_14,
+            "text": "I search the room carefully.",
+        },
+    }]
+
+    checker.process_updates(updates, config, state)
+    hours = state.get("activity_hours", {}).get("100", {}).get("42", {})
+    days = state.get("activity_days", {}).get("100", {}).get("42", {})
+    assert hours.get("14", 0) == 1
+    assert days.get("2", 0) == 1  # Wednesday = 2
+
+
+def test_activity_command():
+    """/activity shows pattern report when data exists."""
+    _reset()
+    config = _make_config()
+    state = _make_state()
+    state["activity_hours"] = {"100": {
+        "42": {"14": 10, "15": 5, "20": 3},
+        "999": {"10": 8, "14": 4},
+    }}
+    state["activity_days"] = {"100": {
+        "42": {"0": 5, "2": 8, "4": 5},
+        "999": {"1": 4, "3": 8},
+    }}
+
+    result = checker._build_activity("100", "TestCampaign", state, {999})
+    assert "Activity Patterns" in result
+    assert "Busiest days" in result
+    assert "Busiest times" in result
+    assert "Peak hour" in result
+
+
+def test_activity_empty():
+    """/activity with no data shows helpful message."""
+    _reset()
+    result = checker._build_activity("100", "TestCampaign", {}, {999})
+    assert "No activity data" in result
+
+
+def test_activity_command_via_message():
+    """/activity sent as a message produces a response."""
+    _reset()
+    config = _make_config()
+    state = _make_state()
+    state["activity_hours"] = {"100": {"42": {"14": 5}}}
+    state["activity_days"] = {"100": {"42": {"2": 5}}}
+    now_ts = int(datetime.now(timezone.utc).timestamp())
+
+    updates = [{
+        "update_id": 9201,
+        "message": {
+            "chat": {"id": -100},
+            "message_thread_id": 100,
+            "from": {"id": 42, "first_name": "Alice"},
+            "date": now_ts,
+            "text": "/activity",
+        },
+    }]
+
+    checker.process_updates(updates, config, state)
+    activity_msgs = [m for m in _sent_messages if "Activity" in m.get("text", "")]
+    assert len(activity_msgs) >= 1
+
+
+def test_profile_command():
+    """/profile shows cross-campaign stats for a player."""
+    _reset()
+    config = _make_config()
+    state = _make_state()
+    state["players"] = {
+        "100:42": {
+            "user_id": "42", "first_name": "Alice", "last_name": "",
+            "username": "alice", "campaign_name": "TestCampaign",
+            "pbp_topic_id": "100", "last_post_time": datetime.now(timezone.utc).isoformat(),
+            "last_warned_week": 0,
+        },
+    }
+    state["message_counts"] = {"100": {"42": 25}}
+    now_ts = int(datetime.now(timezone.utc).timestamp())
+
+    updates = [{
+        "update_id": 9202,
+        "message": {
+            "chat": {"id": -100},
+            "message_thread_id": 100,
+            "from": {"id": 42, "first_name": "Alice"},
+            "date": now_ts,
+            "text": "/profile alice",
+        },
+    }]
+
+    checker.process_updates(updates, config, state)
+    profile_msgs = [m for m in _sent_messages if "Alice" in m.get("text", "")]
+    assert len(profile_msgs) >= 1
+
+
+def test_profile_not_found():
+    """/profile with unknown player shows error."""
+    _reset()
+    result = checker._build_profile("nonexistent", _make_config(), _make_state())
+    assert "No player matching" in result
+
+
+def test_profile_no_target():
+    """/profile with no name shows usage."""
+    _reset()
+    config = _make_config()
+    state = _make_state()
+    now_ts = int(datetime.now(timezone.utc).timestamp())
+
+    updates = [{
+        "update_id": 9203,
+        "message": {
+            "chat": {"id": -100},
+            "message_thread_id": 100,
+            "from": {"id": 42, "first_name": "Alice"},
+            "date": now_ts,
+            "text": "/profile",
+        },
+    }]
+
+    checker.process_updates(updates, config, state)
+    usage_msgs = [m for m in _sent_messages if "Usage" in m.get("text", "")]
+    assert len(usage_msgs) >= 1
+
+
+def test_profile_cross_campaign():
+    """/profile shows stats across multiple campaigns."""
+    _reset()
+    config = _make_config(pairs=[
+        {"name": "Campaign A", "chat_topic_id": 200, "pbp_topic_ids": [100]},
+        {"name": "Campaign B", "chat_topic_id": 400, "pbp_topic_ids": [300]},
+    ])
+    state = _make_state()
+    now = datetime.now(timezone.utc).isoformat()
+    state["players"] = {
+        "100:42": {
+            "user_id": "42", "first_name": "Alice", "last_name": "",
+            "username": "alice", "campaign_name": "Campaign A",
+            "pbp_topic_id": "100", "last_post_time": now,
+            "last_warned_week": 0,
+        },
+        "300:42": {
+            "user_id": "42", "first_name": "Alice", "last_name": "",
+            "username": "alice", "campaign_name": "Campaign B",
+            "pbp_topic_id": "300", "last_post_time": now,
+            "last_warned_week": 0,
+        },
+    }
+    state["message_counts"] = {"100": {"42": 15}, "300": {"42": 10}}
+
+    result = checker._build_profile("alice", config, state)
+    assert "Campaign A" in result
+    assert "Campaign B" in result
+    assert "25 posts across 2 campaigns" in result
+
+
+# ------------------------------------------------------------------ #
 #  Runner
 # ------------------------------------------------------------------ #
 def _run_all():

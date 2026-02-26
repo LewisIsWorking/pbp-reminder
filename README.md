@@ -254,6 +254,8 @@ The bot responds to these commands in any monitored PBP topic:
 - `/overview` - Compact summary of all campaigns.
 - `/party` - In-fiction party composition (requires character config).
 - `/notes` - View GM notes for the current campaign.
+- `/activity` - Posting patterns: busiest hours, days, and time blocks.
+- `/profile @player` - Cross-campaign stats for any player.
 
 ### GM commands
 
