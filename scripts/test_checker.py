@@ -833,6 +833,213 @@ def test_check_player_activity_respects_toggle():
 
 
 # ------------------------------------------------------------------ #
+#  _gather_leaderboard_stats tests
+# ------------------------------------------------------------------ #
+def test_gather_leaderboard_stats_basic():
+    _reset()
+    now = datetime.now(timezone.utc)
+    config = _make_config()
+    state = _make_state()
+
+    state["players"]["100:42"] = {
+        "user_id": "42", "first_name": "Alice", "last_name": "B",
+        "username": "alice", "campaign_name": "TestCampaign",
+        "pbp_topic_id": "100", "last_post_time": (now - timedelta(hours=2)).isoformat(),
+        "last_warned_week": 0,
+    }
+    state["message_counts"]["100"] = {"42": 10, "999": 20}
+    state["post_timestamps"]["100"] = {
+        "42": [(now - timedelta(hours=h)).isoformat() for h in [2, 24, 48, 72, 120]],
+        "999": [(now - timedelta(hours=h)).isoformat() for h in [1, 12, 36, 60, 96]],
+    }
+
+    stats, global_players = checker._gather_leaderboard_stats(config, state, now)
+    assert len(stats) == 1
+    assert stats[0]["name"] == "TestCampaign"
+    assert stats[0]["total_7d"] > 0
+    assert stats[0]["gm_7d"] > 0
+    assert stats[0]["player_7d"] > 0
+    assert "42" in global_players
+    assert global_players["42"]["full_name"] == "Alice B"
+
+
+def test_gather_leaderboard_stats_empty():
+    _reset()
+    now = datetime.now(timezone.utc)
+    config = _make_config()
+    state = _make_state()
+
+    stats, global_players = checker._gather_leaderboard_stats(config, state, now)
+    assert len(stats) == 1  # Campaign exists but with no data
+    assert stats[0]["total_7d"] == 0
+    assert len(global_players) == 0
+
+
+# ------------------------------------------------------------------ #
+#  check_combat_turns tests
+# ------------------------------------------------------------------ #
+def test_check_combat_turns_pings_missing():
+    _reset()
+    now = datetime.now(timezone.utc)
+    config = _make_config()
+    state = _make_state()
+
+    state["players"]["100:42"] = {
+        "user_id": "42", "first_name": "Alice", "last_name": "",
+        "username": "alice", "campaign_name": "TestCampaign",
+        "pbp_topic_id": "100", "last_post_time": now.isoformat(),
+        "last_warned_week": 0,
+    }
+    state["combat"]["100"] = {
+        "active": True, "round": 1, "current_phase": "players",
+        "players_acted": [], "last_ping_at": None,
+        "campaign_name": "TestCampaign",
+        "phase_started_at": (now - timedelta(hours=5)).isoformat(),
+    }
+
+    checker.check_combat_turns(config, state, now=now)
+    ping_msgs = [m for m in _sent_messages if "waiting on" in m.get("text", "")]
+    assert len(ping_msgs) == 1
+    assert "alice" in ping_msgs[0]["text"].lower() or "Alice" in ping_msgs[0]["text"]
+
+
+def test_check_combat_turns_skips_enemies_phase():
+    _reset()
+    now = datetime.now(timezone.utc)
+    config = _make_config()
+    state = _make_state()
+
+    state["combat"]["100"] = {
+        "active": True, "round": 1, "current_phase": "enemies",
+        "players_acted": [], "last_ping_at": None,
+        "campaign_name": "TestCampaign",
+        "phase_started_at": (now - timedelta(hours=5)).isoformat(),
+    }
+
+    checker.check_combat_turns(config, state, now=now)
+    assert len(_sent_messages) == 0
+
+
+def test_check_combat_turns_no_reping_too_soon():
+    _reset()
+    now = datetime.now(timezone.utc)
+    config = _make_config()
+    state = _make_state()
+
+    state["players"]["100:42"] = {
+        "user_id": "42", "first_name": "Alice", "last_name": "",
+        "username": "", "campaign_name": "TestCampaign",
+        "pbp_topic_id": "100", "last_post_time": now.isoformat(),
+        "last_warned_week": 0,
+    }
+    state["combat"]["100"] = {
+        "active": True, "round": 1, "current_phase": "players",
+        "players_acted": [], "campaign_name": "TestCampaign",
+        "phase_started_at": (now - timedelta(hours=5)).isoformat(),
+        "last_ping_at": (now - timedelta(hours=1)).isoformat(),
+    }
+
+    checker.check_combat_turns(config, state, now=now)
+    assert len(_sent_messages) == 0  # Too soon to reping
+
+
+# ------------------------------------------------------------------ #
+#  check_anniversaries tests
+# ------------------------------------------------------------------ #
+def test_check_anniversaries_fires_on_date():
+    _reset()
+    now = datetime.now(timezone.utc)
+    # Construct a "created" date exactly 2 years ago today
+    two_years_ago = now.replace(year=now.year - 2)
+    created_str = two_years_ago.strftime("%Y-%m-%d")
+
+    config = _make_config(pairs=[
+        {"name": "OldCampaign", "chat_topic_id": 200, "pbp_topic_ids": [100], "created": created_str},
+    ])
+    state = _make_state()
+
+    checker.check_anniversaries(config, state, now=now)
+    anniv_msgs = [m for m in _sent_messages if "2 years" in m.get("text", "")]
+    assert len(anniv_msgs) == 1
+    assert "100:2" in state["last_anniversary"]
+
+
+def test_check_anniversaries_no_duplicate():
+    _reset()
+    now = datetime.now(timezone.utc)
+    two_years_ago = now.replace(year=now.year - 2)
+    created_str = two_years_ago.strftime("%Y-%m-%d")
+
+    config = _make_config(pairs=[
+        {"name": "OldCampaign", "chat_topic_id": 200, "pbp_topic_ids": [100], "created": created_str},
+    ])
+    state = _make_state()
+    state["last_anniversary"]["100:2"] = now.isoformat()  # Already posted
+
+    checker.check_anniversaries(config, state, now=now)
+    assert len(_sent_messages) == 0
+
+
+def test_check_anniversaries_wrong_day():
+    _reset()
+    now = datetime.now(timezone.utc)
+    # Use a date that's NOT today
+    wrong_date = now.replace(year=now.year - 1, month=(now.month % 12) + 1)
+    created_str = wrong_date.strftime("%Y-%m-%d")
+
+    config = _make_config(pairs=[
+        {"name": "Campaign", "chat_topic_id": 200, "pbp_topic_ids": [100], "created": created_str},
+    ])
+    state = _make_state()
+
+    checker.check_anniversaries(config, state, now=now)
+    assert len(_sent_messages) == 0
+
+
+# ------------------------------------------------------------------ #
+#  check_recruitment_needs tests
+# ------------------------------------------------------------------ #
+def test_check_recruitment_fires_when_short():
+    _reset()
+    now = datetime.now(timezone.utc)
+    config = _make_config()
+    state = _make_state()
+
+    # Only 1 player, needs 6
+    state["players"]["100:42"] = {
+        "user_id": "42", "first_name": "Alice", "last_name": "",
+        "username": "", "campaign_name": "TestCampaign",
+        "pbp_topic_id": "100", "last_post_time": now.isoformat(),
+        "last_warned_week": 0,
+    }
+
+    checker.check_recruitment_needs(config, state, now=now)
+    recruit_msgs = [m for m in _sent_messages if "needs" in m.get("text", "") and "more player" in m.get("text", "")]
+    assert len(recruit_msgs) == 1
+    assert "5 more players" in recruit_msgs[0]["text"]
+
+
+def test_check_recruitment_skips_full_roster():
+    _reset()
+    now = datetime.now(timezone.utc)
+    config = _make_config()
+    state = _make_state()
+
+    # Add 6 players (full roster)
+    for i in range(6):
+        state["players"][f"100:{i}"] = {
+            "user_id": str(i), "first_name": f"Player{i}", "last_name": "",
+            "username": "", "campaign_name": "TestCampaign",
+            "pbp_topic_id": "100", "last_post_time": now.isoformat(),
+            "last_warned_week": 0,
+        }
+
+    checker.check_recruitment_needs(config, state, now=now)
+    recruit_msgs = [m for m in _sent_messages if "needs" in m.get("text", "") and "more player" in m.get("text", "")]
+    assert len(recruit_msgs) == 0
+
+
+# ------------------------------------------------------------------ #
 #  Runner
 # ------------------------------------------------------------------ #
 def _run_all():
