@@ -29,6 +29,23 @@ def _make_msg(msg_id, thread_id, text="Hello", from_name="Alice",
     return msg
 
 
+def _make_desktop_msg(msg_id, reply_to, text_entities=None, from_name="Alice",
+                      from_id="user42", date="2025-06-15T14:30:05", **extra):
+    """Create a message in Telegram Desktop export format."""
+    msg = {
+        "id": msg_id,
+        "type": "message",
+        "reply_to_message_id": reply_to,
+        "from": from_name,
+        "from_id": from_id,
+        "date": date,
+    }
+    if text_entities:
+        msg["text_entities"] = text_entities
+    msg.update(extra)
+    return msg
+
+
 def test_extract_text_string():
     assert import_history.extract_text({"text": "hello"}) == "hello"
 
@@ -42,6 +59,15 @@ def test_extract_text_entity_list():
     assert import_history.extract_text(msg) == "plain bold more"
 
 
+def test_extract_text_entities_desktop():
+    """Telegram Desktop export uses text_entities, not text."""
+    msg = {"text_entities": [
+        {"type": "mention", "text": "@tinysliney"},
+        {"type": "plain", "text": " Amar stands before a fish man."},
+    ]}
+    assert import_history.extract_text(msg) == "@tinysliney Amar stands before a fish man."
+
+
 def test_extract_text_empty():
     assert import_history.extract_text({}) == ""
 
@@ -51,7 +77,7 @@ def test_detect_media_photo():
 
 
 def test_detect_media_sticker():
-    assert import_history.detect_media({"sticker_emoji": "😂"}) == "sticker:😂"
+    assert import_history.detect_media({"media_type": "sticker", "sticker_emoji": "😂"}) == "sticker:😂"
 
 
 def test_detect_media_gif():
@@ -242,6 +268,54 @@ def test_build_thread_map():
     assert m[101] == "A"
     assert m[200] == "B"
     assert 10 not in m  # Chat topics not included
+
+
+def test_import_desktop_export_format():
+    """Test import with Telegram Desktop export format (reply_to_message_id, text_entities)."""
+    tmp = tempfile.mkdtemp()
+    old_logs = import_history.LOGS_DIR
+    old_config = import_history.CONFIG_PATH
+
+    try:
+        config = {
+            "gm_user_ids": [999],
+            "topic_pairs": [
+                {"name": "TestCampaign", "chat_topic_id": 10, "pbp_topic_ids": [100]},
+            ],
+        }
+        config_path = Path(tmp) / "config.json"
+        config_path.write_text(json.dumps(config))
+        import_history.CONFIG_PATH = config_path
+        import_history.LOGS_DIR = Path(tmp) / "logs"
+
+        export = _make_export([
+            _make_desktop_msg(1, 100,
+                text_entities=[{"type": "plain", "text": "Amar attacks!"}],
+                date="2025-06-15T10:00:00"),
+            _make_desktop_msg(2, 100,
+                text_entities=[{"type": "mention", "text": "@player"}, {"type": "plain", "text": " The goblin snarls."}],
+                from_name="Lewis", from_id="user999",
+                date="2025-06-15T10:05:00"),
+            _make_desktop_msg(3, 999,
+                text_entities=[{"type": "plain", "text": "Wrong topic"}],
+                date="2025-06-15T10:10:00"),
+        ])
+        export_path = Path(tmp) / "export.json"
+        export_path.write_text(json.dumps(export))
+
+        results = import_history.import_messages(str(export_path))
+        assert results["TestCampaign"] == 2
+
+        campaign_dir = Path(tmp) / "logs" / "TestCampaign"
+        content = (campaign_dir / "2025-06.md").read_text()
+        assert "Amar attacks!" in content
+        assert "[GM]" in content
+        assert "@player The goblin snarls." in content
+
+    finally:
+        import_history.LOGS_DIR = old_logs
+        import_history.CONFIG_PATH = old_config
+        shutil.rmtree(tmp)
 
 
 # ------------------------------------------------------------------ #
