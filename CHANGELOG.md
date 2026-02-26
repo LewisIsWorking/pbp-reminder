@@ -11,6 +11,60 @@ Versioning: [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.4.0] - 2026-02-26
+
+### Summary
+PBP transcript archiving. Every message in every PBP topic is now logged to
+persistent markdown files in the repo — a complete, readable backup of every
+campaign's story. If Telegram dies, the campaigns live on.
+
+### Added — PBP Transcript Archive
+- Every non-command message in every PBP topic is now appended to a monthly
+  markdown transcript file at `data/pbp_logs/{CampaignName}/{YYYY-MM}.md`.
+- Transcripts include: timestamp, player/GM name, role tag, message text.
+- Media is logged with type markers: `*[image]*`, `*[sticker 😂]*`, `*[gif]*`,
+  `*[video]*`, `*[voice message]*`, `*[document:filename.pdf]*`. Captions are
+  preserved alongside media markers.
+- An auto-generated `data/pbp_logs/README.md` index lists all campaigns with
+  message counts and links to monthly log files.
+- Files are committed to the repo hourly via GitHub Actions alongside the
+  existing weekly archive.
+- Only PBP topic messages are logged. Chat topics and bot commands are excluded.
+
+### How It Works
+The transcript files are standard markdown, readable directly on GitHub or any
+markdown viewer. Each monthly file has a header and chronological entries:
+
+```
+# Doomsday Funtime — 2026-02
+
+*PBP transcript archived by PathWarsNudge bot.*
+
+---
+
+**Alice** (2026-02-26 14:30:05):
+I attack the goblin with my longsword!
+
+**Lewis** [GM] (2026-02-26 14:32:10):
+The goblin shrieks as the blade connects. Roll damage.
+
+**Bob** (2026-02-26 14:35:22):
+*[image]* battle map update
+```
+
+### Changed
+- `_parse_message` now extracts media type (photo, sticker, gif, video, voice,
+  document) and caption from Telegram messages.
+- GitHub Actions workflow commit step updated to include transcript data.
+
+### Tests
+- 7 new tests: _sanitize_dirname, _format_log_entry (text, GM, image, sticker),
+  _append_to_transcript (write + append), _parse_message media capture.
+- All test suites redirected to temp directory for transcript writes.
+- Total: 135 tests (34 helpers + 101 checker).
+
+---
+
 ## [1.3.0] - 2026-02-26
 
 ### Summary

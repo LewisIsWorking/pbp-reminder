@@ -309,7 +309,7 @@ scripts/
   state.py              # Gist-based state persistence
   post_changelog.py     # Changelog parser and Telegram poster
   test_helpers.py       # Test suite for helpers (34 tests)
-  test_checker.py       # Test suite for checker (94 tests)
+  test_checker.py       # Test suite for checker (101 tests)
 config.json             # Your configuration
 config.example.json     # Template configuration
 boons.json              # Flavour boons for POTW (optional)
@@ -318,6 +318,8 @@ docs/
   index.html            # Archive dashboard (Chart.js)
 data/
   weekly_archive.json   # Auto-committed weekly stats archive
+  pbp_logs/             # PBP transcript archive (monthly .md per campaign)
+    README.md           # Auto-generated index of all transcripts
 VERSION                 # Current semver version
 CHANGELOG.md            # Release notes
 ```
