@@ -186,6 +186,7 @@ Key fields:
 - **leaderboard_topic_id**: Topic ID for the cross-campaign leaderboard (or `null` to disable).
 - **topic_pairs**: One entry per campaign. Each needs a name, a chat topic, and one or more PBP topics.
 - **created**: Campaign start date for anniversary alerts (optional, `YYYY-MM-DD`).
+- **gm_user_ids** (per-campaign): Optional override that replaces the global GM list for this campaign only. Useful when a campaign has a different GM.
 - **disabled_features**: Optional list of features to disable for this campaign.
   Valid values: `alerts`, `warnings`, `roster`, `potw`, `pace`, `recruitment`, `combat`, `anniversary`.
 

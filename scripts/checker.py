@@ -837,7 +837,6 @@ def update_transcript_index(config: dict) -> None:
 def process_updates(updates: list, config: dict, state: dict) -> int:
     """Process new Telegram updates, tracking posts and handling commands. Returns new offset."""
     group_id = config["group_id"]
-    gm_ids = helpers.gm_id_set(config)
 
     maps = build_topic_maps(config)
 
@@ -870,6 +869,9 @@ def process_updates(updates: list, config: dict, state: dict) -> int:
         now_iso = parsed["now_iso"]
         msg_time_iso = parsed["msg_time_iso"]
         text = parsed["text"]
+
+        # Per-campaign GM IDs (supports per-campaign overrides)
+        gm_ids = helpers.gm_ids_for_campaign(config, pid)
 
         # ---- /help command ----
         if text in ("/help", "/pbphelp"):
@@ -1165,13 +1167,14 @@ def post_roster_summary(config: dict, state: dict, *, now: datetime | None = Non
 
     maps = maps or build_topic_maps(config)
     campaigns = helpers.players_by_campaign(state)
-    gm_ids = helpers.gm_id_set(config)
 
     for pid, chat_topic_id in maps.to_chat.items():
         if not helpers.feature_enabled(config, pid, "roster"):
             continue
         if not helpers.interval_elapsed(state["last_roster"].get(pid), helpers.ROSTER_INTERVAL_DAYS, now):
             continue
+
+        gm_ids = helpers.gm_ids_for_campaign(config, pid)
 
         name = maps.to_name.get(pid, "Unknown")
         players = campaigns.get(pid, [])
@@ -1252,7 +1255,6 @@ def player_of_the_week(config: dict, state: dict, *, now: datetime | None = None
     """Award Player of the Week based on smallest average gap between posts."""
     group_id = config["group_id"]
     now = now or datetime.now(timezone.utc)
-    gm_ids = helpers.gm_id_set(config)
 
     try:
         with open(helpers.BOONS_PATH) as f:
@@ -1272,6 +1274,7 @@ def player_of_the_week(config: dict, state: dict, *, now: datetime | None = None
 
         name = maps.to_name.get(pid, "Unknown")
         topic_timestamps = helpers.get_topic_timestamps(state, pid)
+        gm_ids = helpers.gm_ids_for_campaign(config, pid)
 
         candidates = _gather_potw_candidates(topic_timestamps, gm_ids, week_ago, pid, state)
         if not candidates:
@@ -1394,7 +1397,6 @@ def archive_weekly_data(config: dict, state: dict, *, now: datetime | None = Non
     giving full git history and no gist size concerns.
     """
     now = now or datetime.now(timezone.utc)
-    gm_ids = helpers.gm_id_set(config)
 
     # Use last week's ISO week number (since current week is still in progress)
     last_week = now - timedelta(days=7)
@@ -1421,6 +1423,7 @@ def archive_weekly_data(config: dict, state: dict, *, now: datetime | None = Non
 
     for pid, name in maps.to_name.items():
         topic_timestamps = helpers.get_topic_timestamps(state, pid)
+        gm_ids = helpers.gm_ids_for_campaign(config, pid)
 
         gm_posts = 0
         player_posts = 0
@@ -1501,7 +1504,6 @@ def post_pace_report(config: dict, state: dict, *, now: datetime | None = None, 
     """Post weekly pace comparison: posts/day this week vs last week, split GM/players."""
     group_id = config["group_id"]
     now = now or datetime.now(timezone.utc)
-    gm_ids = helpers.gm_id_set(config)
 
     maps = maps or build_topic_maps(config)
 
@@ -1516,6 +1518,7 @@ def post_pace_report(config: dict, state: dict, *, now: datetime | None = None, 
 
         name = maps.to_name.get(pid, "Unknown")
         topic_timestamps = helpers.get_topic_timestamps(state, pid)
+        gm_ids = helpers.gm_ids_for_campaign(config, pid)
 
         if not topic_timestamps:
             continue
@@ -1580,7 +1583,6 @@ def check_streak_milestones(config: dict, state: dict, *, now: datetime | None =
     """Celebrate when a player crosses a streak milestone (7, 14, 30, 60, 90 days)."""
     group_id = config["group_id"]
     now = now or datetime.now(timezone.utc)
-    gm_ids = helpers.gm_id_set(config)
 
     maps = maps or build_topic_maps(config)
     celebrated = state.setdefault("celebrated_streaks", {})
@@ -1588,6 +1590,7 @@ def check_streak_milestones(config: dict, state: dict, *, now: datetime | None =
     for pid, chat_topic_id in maps.to_chat.items():
         name = maps.to_name.get(pid, "Unknown")
         topic_ts = helpers.get_topic_timestamps(state, pid)
+        gm_ids = helpers.gm_ids_for_campaign(config, pid)
 
         for uid, raw_ts in topic_ts.items():
             if uid in gm_ids:
@@ -1679,7 +1682,6 @@ def check_anniversaries(config: dict, state: dict, *, now: datetime | None = Non
 # ------------------------------------------------------------------ #
 def _gather_leaderboard_stats(config: dict, state: dict, now: datetime) -> tuple[list, dict, list]:
     """Collect per-campaign stats, global player rankings, and top streaks for the leaderboard."""
-    gm_ids = helpers.gm_id_set(config)
     seven_days_ago = now - timedelta(days=7)
     three_days_ago = now - timedelta(days=3)
     six_days_ago = now - timedelta(days=6)
@@ -1692,6 +1694,7 @@ def _gather_leaderboard_stats(config: dict, state: dict, now: datetime) -> tuple
 
     for pid, name in maps.to_name.items():
         topic_timestamps = helpers.get_topic_timestamps(state, pid)
+        gm_ids = helpers.gm_ids_for_campaign(config, pid)
 
         gm_7d = 0
         player_7d = 0
@@ -1963,7 +1966,6 @@ def _health_icon(total_posts_7d: int) -> str:
 
 def _build_weekly_digest(config: dict, state: dict, now: datetime) -> str:
     """Build a compact one-line-per-campaign weekly digest."""
-    gm_ids = helpers.gm_id_set(config)
     maps = build_topic_maps(config)
     week_ago = now - timedelta(days=7)
 
@@ -1972,6 +1974,7 @@ def _build_weekly_digest(config: dict, state: dict, now: datetime) -> str:
 
     for pid, name in maps.to_name.items():
         topic_ts = helpers.get_topic_timestamps(state, pid)
+        gm_ids = helpers.gm_ids_for_campaign(config, pid)
         pace = helpers.pace_split(topic_ts, gm_ids, now)
         total = pace["gm_this"] + pace["player_this"]
         total_last = pace["gm_last"] + pace["player_last"]

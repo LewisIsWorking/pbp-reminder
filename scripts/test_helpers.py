@@ -220,6 +220,44 @@ def test_gm_id_set():
     assert helpers.gm_id_set({}) == set()
 
 
+def test_gm_ids_for_campaign_global_fallback():
+    config = {
+        "gm_user_ids": [111],
+        "topic_pairs": [
+            {"name": "A", "chat_topic_id": 10, "pbp_topic_ids": [100]},
+        ],
+    }
+    # No per-campaign override, falls back to global
+    assert helpers.gm_ids_for_campaign(config, "100") == {"111"}
+
+
+def test_gm_ids_for_campaign_per_campaign_override():
+    config = {
+        "gm_user_ids": [111],
+        "topic_pairs": [
+            {"name": "A", "chat_topic_id": 10, "pbp_topic_ids": [100]},
+            {"name": "B", "chat_topic_id": 20, "pbp_topic_ids": [200], "gm_user_ids": [222]},
+        ],
+    }
+    # Campaign A uses global
+    assert helpers.gm_ids_for_campaign(config, "100") == {"111"}
+    # Campaign B uses its own override
+    assert helpers.gm_ids_for_campaign(config, "200") == {"222"}
+    # Global GM NOT in campaign B's set
+    assert "111" not in helpers.gm_ids_for_campaign(config, "200")
+
+
+def test_gm_ids_for_campaign_unknown_pid():
+    config = {
+        "gm_user_ids": [111],
+        "topic_pairs": [
+            {"name": "A", "chat_topic_id": 10, "pbp_topic_ids": [100]},
+        ],
+    }
+    # Unknown pid falls back to global
+    assert helpers.gm_ids_for_campaign(config, "999") == {"111"}
+
+
 def test_players_by_campaign():
     state = {"players": {
         "A:1": {"pbp_topic_id": "A", "name": "p1"},

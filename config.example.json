@@ -15,6 +15,7 @@
             "chat_topic_id": 33333,
             "pbp_topic_ids": [44444, 55555],
             "created": "2024-06-01",
+            "gm_user_ids": [987654321],
             "disabled_features": ["recruitment", "potw"]
         }
     ],

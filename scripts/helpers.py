@@ -178,8 +178,23 @@ def validate_config(config: dict) -> list[str]:
 
 
 def gm_id_set(config: dict) -> set:
-    """Return GM user IDs as a set of strings."""
+    """Return global GM user IDs as a set of strings."""
     return set(str(uid) for uid in config.get("gm_user_ids", []))
+
+
+def gm_ids_for_campaign(config: dict, pid: str) -> set:
+    """Return GM IDs for a specific campaign.
+
+    If the campaign's topic_pair has its own ``gm_user_ids``, use that
+    (replacing the global list). Otherwise fall back to the global list.
+    """
+    for pair in config.get("topic_pairs", []):
+        all_ids = [str(pair.get("chat_topic_id", ""))] + [str(x) for x in pair.get("pbp_topic_ids", [])]
+        if pid in all_ids:
+            if "gm_user_ids" in pair:
+                return set(str(uid) for uid in pair["gm_user_ids"])
+            break
+    return gm_id_set(config)
 
 
 def feature_enabled(config: dict, pid: str, feature: str) -> bool:
