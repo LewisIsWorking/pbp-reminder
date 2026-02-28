@@ -1797,6 +1797,50 @@ def test_append_to_transcript():
     shutil.rmtree(test_dir)
 
 
+def test_transcript_week_headers():
+    """Transcript inserts week headers when ISO week changes."""
+    import shutil
+    test_dir = checker._LOGS_DIR / "week_test"
+    if test_dir.exists():
+        shutil.rmtree(test_dir)
+    checker._transcript_week_cache.clear()
+
+    base = {
+        "campaign_name": "week_test",
+        "user_name": "Alice", "user_last_name": "", "user_id": "42",
+        "raw_text": "msg", "media_type": None, "caption": "",
+    }
+
+    # Week 9: Mon Feb 23 2026
+    parsed1 = {**base, "msg_time_iso": "2026-02-23T10:00:00+00:00", "raw_text": "week 9 msg"}
+    checker._append_to_transcript(parsed1, {"999"})
+
+    # Same week, no new header
+    parsed2 = {**base, "msg_time_iso": "2026-02-25T12:00:00+00:00", "raw_text": "still week 9"}
+    checker._append_to_transcript(parsed2, {"999"})
+
+    # Week 10: Mon Mar 2 2026
+    parsed3 = {**base, "msg_time_iso": "2026-03-02T08:00:00+00:00", "raw_text": "week 10 msg"}
+    checker._append_to_transcript(parsed3, {"999"})
+
+    # Check February file
+    feb_file = checker._LOGS_DIR / "week_test" / "2026-02.md"
+    feb_content = feb_file.read_text()
+    assert "## Week 9" in feb_content
+    assert feb_content.count("## Week 9") == 1  # Only one header for week 9
+    assert "week 9 msg" in feb_content
+    assert "still week 9" in feb_content
+
+    # Check March file
+    mar_file = checker._LOGS_DIR / "week_test" / "2026-03.md"
+    mar_content = mar_file.read_text()
+    assert "## Week 10" in mar_content
+    assert "week 10 msg" in mar_content
+
+    shutil.rmtree(test_dir)
+    checker._transcript_week_cache.clear()
+
+
 def test_parse_message_captures_media():
     maps = helpers.build_topic_maps({"topic_pairs": [
         {"name": "Test", "chat_topic_id": 200, "pbp_topic_ids": [100]},

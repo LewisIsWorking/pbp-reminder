@@ -2275,6 +2275,7 @@ def _append_to_transcript(parsed: dict, gm_ids: set, config: dict | None = None)
 
     Files: data/pbp_logs/{CampaignName}/{YYYY-MM}.md
     Each file has a header on first creation, then entries appended.
+    Week separators (## Week N) are inserted when the ISO week changes.
     """
     campaign_name = parsed["campaign_name"]
     dir_name = _sanitize_dirname(campaign_name)
@@ -2291,16 +2292,54 @@ def _append_to_transcript(parsed: dict, gm_ids: set, config: dict | None = None)
     if config:
         char_name = helpers.character_name(config, parsed["pid"], parsed["user_id"])
 
+    # Determine ISO week of this message
+    msg_dt = datetime.fromisoformat(parsed["msg_time_iso"])
+    msg_iso_year, msg_iso_week, _ = msg_dt.isocalendar()
+
     # Create header on first write
     is_new = not log_file.exists()
+
+    # Check if we need a week separator
+    needs_week_header = False
+    if is_new:
+        needs_week_header = True
+    else:
+        # Read last week marker from state or scan file tail
+        last_week_key = f"transcript_last_week:{dir_name}:{month_str}"
+        last_week = _transcript_week_cache.get(last_week_key)
+        if last_week is None:
+            # Scan file for last week marker
+            try:
+                content = log_file.read_text(encoding="utf-8")
+                import re
+                week_matches = re.findall(r"## Week (\d+)", content)
+                last_week = int(week_matches[-1]) if week_matches else 0
+            except Exception:
+                last_week = 0
+        if msg_iso_week != last_week:
+            needs_week_header = True
 
     with open(log_file, "a", encoding="utf-8") as f:
         if is_new:
             f.write(f"# {campaign_name} — {month_str}\n\n")
             f.write("*PBP transcript archived by PathWarsNudge bot.*\n\n---\n\n")
 
+        if needs_week_header:
+            # Calculate week date range (Mon–Sun)
+            from datetime import date as _date
+            week_monday = _date.fromisocalendar(msg_iso_year, msg_iso_week, 1)
+            week_sunday = _date.fromisocalendar(msg_iso_year, msg_iso_week, 7)
+            mon_str = week_monday.strftime("%b %d")
+            sun_str = week_sunday.strftime("%b %d")
+            f.write(f"## Week {msg_iso_week} ({mon_str}–{sun_str})\n\n")
+            _transcript_week_cache[f"transcript_last_week:{dir_name}:{month_str}"] = msg_iso_week
+
         entry = _format_log_entry(parsed, gm_ids, char_name)
         f.write(entry + "\n")
+
+
+# In-memory cache to avoid re-scanning files for week markers
+_transcript_week_cache: dict[str, int] = {}
 
 
 def update_transcript_index(config: dict) -> None:

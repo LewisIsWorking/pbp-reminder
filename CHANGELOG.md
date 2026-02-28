@@ -40,6 +40,8 @@ Versioning: [Semantic Versioning](https://semver.org/).
 
 ### Improved
 - Pace report now shows ISO week numbers (e.g. "This week W09", "Last week W08")
+- PBP transcript logs now insert `## Week N (Mon DD–Mon DD)` headers when the ISO week changes
+- Week headers make it easy to find specific weeks when scrolling through monthly logs
 
 ---
 
