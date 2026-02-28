@@ -142,6 +142,10 @@ _HELP_TEXT = (
     "/scene <name> - Mark a scene boundary in the transcript\n"
     "/note <text> - Add a persistent GM note to this campaign\n"
     "/delnote <N> - Delete a GM note by number\n"
+    "/quest <text> - Add an active quest/objective\n"
+    "/done <N> - Mark quest N as completed\n"
+    "/delquest <N> - Delete quest N\n"
+    "/gm - GM dashboard: all campaigns at a glance\n"
     "\n"
     "Everyone:\n"
     "/help - Show this message\n"
@@ -154,6 +158,7 @@ _HELP_TEXT = (
     "/catchup - What happened since you last posted\n"
     "/party - In-fiction party composition\n"
     "/notes - View GM notes for this campaign\n"
+    "/quests - View active and completed quests\n"
     "/activity - Posting patterns: busiest hours and days\n"
     "/profile @player - Cross-campaign stats for a player\n"
     "/away [duration] [reason] - Declare an absence (skip warnings)\n"
@@ -697,6 +702,111 @@ def _build_notes(pid: str, campaign_name: str, state: dict) -> str:
 
 
 _MAX_NOTES_PER_CAMPAIGN = 20
+_MAX_QUESTS_PER_CAMPAIGN = 20
+
+
+def _build_quests(pid: str, campaign_name: str, state: dict) -> str:
+    """Build the quest list for /quests command."""
+    quests = state.get("quests", {}).get(pid, [])
+    if not quests:
+        return f"No quests tracked for {campaign_name}.\nGMs can add quests with /quest <text>"
+
+    active = [(i, q) for i, q in enumerate(quests, 1) if q.get("status") == "active"]
+    completed = [(i, q) for i, q in enumerate(quests, 1) if q.get("status") == "completed"]
+
+    lines = [f"📋 Quests — {campaign_name}:", ""]
+
+    if active:
+        lines.append("Active:")
+        for i, q in active:
+            lines.append(f"  {i}. {q['text']}")
+    if completed:
+        lines.append("")
+        lines.append("Completed:")
+        for i, q in completed:
+            done_date = (q.get("completed_at") or "")[:10]
+            lines.append(f"  ✅ {i}. {q['text']} ({done_date})")
+
+    lines.append("")
+    total = len(quests)
+    lines.append(f"{len(active)} active, {len(completed)} completed ({total}/{_MAX_QUESTS_PER_CAMPAIGN}).")
+    lines.append("GMs: /quest <text>, /done <N>, /delquest <N>")
+    return "\n".join(lines)
+
+
+def _build_gm_dashboard(config: dict, state: dict) -> str:
+    """Build a compact GM overview of all campaigns."""
+    now = datetime.now(timezone.utc)
+    week_ago = now - timedelta(days=7)
+    maps = build_topic_maps(config)
+
+    lines = ["📊 GM Dashboard:", ""]
+
+    total_posts = 0
+    total_players = 0
+
+    for pid, name in sorted(maps.to_name.items(), key=lambda x: x[1]):
+        gm_ids = helpers.gm_ids_for_campaign(config, pid)
+        topic_ts = helpers.get_topic_timestamps(state, pid)
+        players = [p for p in state.get("players", {}).values()
+                   if p.get("pbp_topic_id") == pid]
+        player_count = len(players)
+        total_players += player_count
+
+        # Posts this week
+        week_posts = 0
+        for uid, timestamps in topic_ts.items():
+            week_posts += len(timestamps_in_window(timestamps, week_ago))
+        total_posts += week_posts
+
+        # Last post
+        topic_state = state.get("topics", {}).get(pid)
+        if topic_state:
+            last_dt = datetime.fromisoformat(topic_state["last_message_time"])
+            last_str, _ = helpers.fmt_brief_relative(now, last_dt)
+        else:
+            last_str = "never"
+
+        # Health indicator
+        if week_posts >= 20:
+            icon = "🟢"
+        elif week_posts >= 10:
+            icon = "🟡"
+        elif week_posts >= 5:
+            icon = "🟠"
+        else:
+            icon = "🔴"
+
+        # Flags
+        flags = []
+        if state.get("paused_campaigns", {}).get(pid):
+            flags.append("⏸️")
+        if state.get("combat", {}).get(pid, {}).get("active"):
+            flags.append("⚔️")
+        away_count = sum(1 for p in players
+                         if helpers.is_away(state, pid, p.get("user_id", ""), now))
+        if away_count:
+            flags.append(f"✈️{away_count}")
+
+        # At-risk count
+        at_risk = sum(1 for p in players
+                      if helpers.days_since(now, datetime.fromisoformat(p["last_post_time"])) >= 7)
+        if at_risk:
+            flags.append(f"⚠️{at_risk}")
+
+        active_quests = len([q for q in state.get("quests", {}).get(pid, [])
+                             if q.get("status") == "active"])
+        if active_quests:
+            flags.append(f"📋{active_quests}")
+
+        flag_str = " " + " ".join(flags) if flags else ""
+
+        lines.append(f"{icon} {name}: {week_posts}pw, {player_count}p, last {last_str}{flag_str}")
+
+    lines.append("")
+    lines.append(f"Total: {total_posts} posts/week across {len(maps.to_name)} campaigns, {total_players} players")
+
+    return "\n".join(lines)
 
 
 def _write_scene_marker(campaign_name: str, scene_name: str) -> None:
@@ -1109,6 +1219,15 @@ _TIPS = [
     "<code>/roll 2d6+3</code> for damage, or "
     "<code>/roll 4d6kh3</code> to keep the highest 3. "
     "Uses your character name if one is configured.",
+
+    "💡 <b>/quests</b> — Your GM can track active quest objectives with "
+    "<code>/quest Find the missing merchant</code>. View them with /quests. "
+    "When you complete one, the GM uses /done to check it off. "
+    "Never lose track of what you're supposed to be doing!",
+
+    "💡 <b>/gm</b> (GM only) — A compact dashboard showing every campaign's health "
+    "at a glance: weekly post count, player count, away/at-risk flags, "
+    "active quests, and combat status. One command to check all your games.",
 ]
 
 
@@ -1703,6 +1822,70 @@ def process_updates(updates: list, config: dict, state: dict) -> int:
             except (ValueError, TypeError):
                 tg.send_message(group_id, thread_id,
                                 "Usage: /delnote <number>\ne.g. /delnote 3")
+
+        # ---- /quest command (GM only) ----
+        if text.startswith("/quest") and not text.startswith("/quests") and user_id in gm_ids:
+            quest_text = parsed["raw_text"][6:].strip()
+            if not quest_text:
+                tg.send_message(group_id, thread_id,
+                                "Usage: /quest <text>\ne.g. /quest Find the missing merchant")
+            else:
+                quests = state.setdefault("quests", {}).setdefault(pid, [])
+                if len(quests) >= _MAX_QUESTS_PER_CAMPAIGN:
+                    tg.send_message(group_id, thread_id,
+                                    f"Maximum {_MAX_QUESTS_PER_CAMPAIGN} quests reached. Use /delquest <N> to remove old ones.")
+                else:
+                    quests.append({"text": quest_text, "status": "active", "created_at": now_iso, "completed_at": None})
+                    tg.send_message(group_id, thread_id,
+                                    f"📋 Quest #{len(quests)} added: {quest_text}")
+                    print(f"Quest added to {campaign_name}: {quest_text[:50]}")
+
+        # ---- /quests command (everyone) ----
+        if text == "/quests":
+            quests_report = _build_quests(pid, campaign_name, state)
+            tg.send_message(group_id, thread_id, quests_report)
+
+        # ---- /done command (GM only) ----
+        if text.startswith("/done") and user_id in gm_ids:
+            num_str = parsed["raw_text"][5:].strip()
+            quests = state.get("quests", {}).get(pid, [])
+            try:
+                idx = int(num_str) - 1
+                if 0 <= idx < len(quests):
+                    quests[idx]["status"] = "completed"
+                    quests[idx]["completed_at"] = now_iso
+                    tg.send_message(group_id, thread_id,
+                                    f"✅ Quest #{idx + 1} completed: {quests[idx]['text']}")
+                    print(f"Quest completed in {campaign_name}: {quests[idx]['text'][:50]}")
+                else:
+                    tg.send_message(group_id, thread_id,
+                                    f"Quest #{num_str} not found. Use /quests to see current quests.")
+            except (ValueError, TypeError):
+                tg.send_message(group_id, thread_id,
+                                "Usage: /done <number>\ne.g. /done 2")
+
+        # ---- /delquest command (GM only) ----
+        if text.startswith("/delquest") and user_id in gm_ids:
+            num_str = parsed["raw_text"][9:].strip()
+            quests = state.get("quests", {}).get(pid, [])
+            try:
+                idx = int(num_str) - 1
+                if 0 <= idx < len(quests):
+                    removed = quests.pop(idx)
+                    tg.send_message(group_id, thread_id,
+                                    f"🗑️ Deleted quest #{idx + 1}: {removed['text'][:60]}")
+                    print(f"Quest deleted from {campaign_name}: {removed['text'][:50]}")
+                else:
+                    tg.send_message(group_id, thread_id,
+                                    f"Quest #{num_str} not found. Use /quests to see current quests.")
+            except (ValueError, TypeError):
+                tg.send_message(group_id, thread_id,
+                                "Usage: /delquest <number>\ne.g. /delquest 3")
+
+        # ---- /gm command (GM only) ----
+        if text == "/gm" and user_id in gm_ids:
+            dashboard = _build_gm_dashboard(config, state)
+            tg.send_message(group_id, thread_id, dashboard)
 
         # ---- /away command (everyone) ----
         if text.startswith("/away"):

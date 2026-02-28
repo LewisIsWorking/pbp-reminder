@@ -3370,6 +3370,157 @@ def test_roll_command_no_args():
 
 
 # ------------------------------------------------------------------ #
+#  Quest tracker tests
+# ------------------------------------------------------------------ #
+def test_quest_add():
+    """/quest adds a quest to the campaign."""
+    _reset()
+    config = _make_config()
+    state = _make_state()
+
+    updates = [_make_msg(1, 100, "/quest Find the missing merchant", user_id=999, first_name="GM")]
+    checker.process_updates(updates, config, state)
+
+    quests = state.get("quests", {}).get("100", [])
+    assert len(quests) == 1
+    assert quests[0]["text"] == "Find the missing merchant"
+    assert quests[0]["status"] == "active"
+    assert "📋" in _sent_messages[-1]["text"]
+
+
+def test_quest_non_gm():
+    """/quest from non-GM should be ignored."""
+    _reset()
+    config = _make_config()
+    state = _make_state()
+
+    updates = [_make_msg(1, 100, "/quest Hack the system", user_id=42, first_name="Player")]
+    checker.process_updates(updates, config, state)
+
+    quests = state.get("quests", {}).get("100", [])
+    assert len(quests) == 0
+
+
+def test_quests_list():
+    """/quests shows active and completed quests."""
+    _reset()
+    config = _make_config()
+    state = _make_state()
+    now = datetime.now(timezone.utc).isoformat()
+    state["quests"] = {
+        "100": [
+            {"text": "Find the gem", "status": "active", "created_at": now, "completed_at": None},
+            {"text": "Save the prince", "status": "completed", "created_at": now, "completed_at": now},
+        ]
+    }
+
+    result = checker._build_quests("100", "TestCampaign", state)
+    assert "Find the gem" in result
+    assert "Save the prince" in result
+    assert "1 active" in result
+    assert "1 completed" in result
+
+
+def test_quest_done():
+    """/done marks a quest as completed."""
+    _reset()
+    config = _make_config()
+    state = _make_state()
+    now = datetime.now(timezone.utc).isoformat()
+    state["quests"] = {
+        "100": [{"text": "Find the gem", "status": "active", "created_at": now, "completed_at": None}]
+    }
+
+    updates = [_make_msg(1, 100, "/done 1", user_id=999, first_name="GM")]
+    checker.process_updates(updates, config, state)
+
+    assert state["quests"]["100"][0]["status"] == "completed"
+    assert state["quests"]["100"][0]["completed_at"] is not None
+    assert "✅" in _sent_messages[-1]["text"]
+
+
+def test_quest_delete():
+    """/delquest removes a quest entirely."""
+    _reset()
+    config = _make_config()
+    state = _make_state()
+    now = datetime.now(timezone.utc).isoformat()
+    state["quests"] = {
+        "100": [{"text": "Find the gem", "status": "active", "created_at": now, "completed_at": None}]
+    }
+
+    updates = [_make_msg(1, 100, "/delquest 1", user_id=999, first_name="GM")]
+    checker.process_updates(updates, config, state)
+
+    assert len(state["quests"]["100"]) == 0
+    assert "🗑️" in _sent_messages[-1]["text"]
+
+
+def test_quests_empty():
+    """/quests with no quests shows helpful message."""
+    result = checker._build_quests("100", "TestCampaign", {"quests": {}})
+    assert "No quests" in result
+
+
+# ------------------------------------------------------------------ #
+#  GM dashboard tests
+# ------------------------------------------------------------------ #
+def test_gm_dashboard():
+    """/gm shows all campaigns with health info."""
+    _reset()
+    config = _make_config(pairs=[
+        {"name": "Campaign A", "chat_topic_id": 200, "pbp_topic_ids": [100]},
+        {"name": "Campaign B", "chat_topic_id": 400, "pbp_topic_ids": [300]},
+    ])
+    state = _make_state()
+    now = datetime.now(timezone.utc)
+    state["players"] = {
+        "100:42": {
+            "user_id": "42", "first_name": "Alice", "last_name": "",
+            "username": "", "campaign_name": "Campaign A",
+            "pbp_topic_id": "100", "last_post_time": now.isoformat(),
+            "last_warned_week": 0,
+        },
+    }
+    state["topics"]["100"] = {
+        "last_message_time": now.isoformat(),
+        "last_user": "Alice", "last_user_id": "42",
+        "campaign_name": "Campaign A",
+    }
+
+    result = checker._build_gm_dashboard(config, state)
+    assert "📊 GM Dashboard" in result
+    assert "Campaign A" in result
+    assert "Campaign B" in result
+
+
+def test_gm_command_requires_gm():
+    """/gm only works for GMs."""
+    _reset()
+    config = _make_config()
+    state = _make_state()
+
+    updates = [_make_msg(1, 100, "/gm", user_id=42, first_name="Player")]
+    checker.process_updates(updates, config, state)
+
+    gm_msgs = [m for m in _sent_messages if "GM Dashboard" in m.get("text", "")]
+    assert len(gm_msgs) == 0, "Non-GM should not see dashboard"
+
+
+def test_gm_command_works_for_gm():
+    """/gm works for GMs."""
+    _reset()
+    config = _make_config()
+    state = _make_state()
+
+    updates = [_make_msg(1, 100, "/gm", user_id=999, first_name="GM")]
+    checker.process_updates(updates, config, state)
+
+    gm_msgs = [m for m in _sent_messages if "GM Dashboard" in m.get("text", "")]
+    assert len(gm_msgs) >= 1
+
+
+# ------------------------------------------------------------------ #
 #  Runner
 # ------------------------------------------------------------------ #
 def _run_all():

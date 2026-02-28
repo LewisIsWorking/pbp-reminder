@@ -198,6 +198,18 @@ name when configured.
 
 ---
 
+## v2.6.0 — Quest Tracker & GM Dashboard
+
+### ✅ Quest tracking
+`/quest`, `/quests`, `/done`, `/delquest`. Track active objectives per
+campaign so players never lose track of what they're doing.
+
+### ✅ `/gm` dashboard
+Compact all-campaign overview: health icons, weekly posts, player counts,
+combat/pause/away/quest flags. One command to check everything.
+
+---
+
 ## Future Ideas (unscheduled)
 
 ### 💡 AI summaries (revisited)

@@ -11,6 +11,29 @@ Versioning: [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.6.0] - 2026-02-27
+
+### Added — Quest Tracker & GM Dashboard
+
+#### Quest tracking
+- `/quest <text>` (GM): add active quest/objective
+- `/quests`: view all quests (active + completed) with numbered list
+- `/done <N>` (GM): mark quest as completed with timestamp
+- `/delquest <N>` (GM): remove quest entirely
+- Max 20 quests per campaign; active shown first, completed with date
+
+#### GM dashboard
+- `/gm` (GM only): compact all-campaign overview in one message
+- Shows: health icon (🟢🟡🟠🔴), weekly posts, player count, last post age
+- Flags: ⏸️ paused, ⚔️ combat active, ✈️ away count, ⚠️ at-risk count, 📋 quest count
+- Cross-campaign totals at bottom
+
+#### Other
+- 2 new daily tips (quests, GM dashboard)
+- 9 new tests (231 total)
+
+---
+
 ## [2.5.0] - 2026-02-27
 
 ### Added — Dice Roller

@@ -260,6 +260,7 @@ The bot responds to these commands in any monitored PBP topic:
 - `/back` - Return from absence.
 - `/recap [N]` - Show last N transcript entries (default 10, max 25).
 - `/roll <dice> [label]` - Roll dice (e.g. `1d20+5 Stealth`, `4d6kh3`).
+- `/quests` - View active and completed quest objectives.
 
 ### GM commands
 
@@ -273,6 +274,10 @@ The bot responds to these commands in any monitored PBP topic:
 - `/scene <n>` - Mark a scene boundary in the transcript.
 - `/note <text>` - Add a persistent GM note (max 20 per campaign).
 - `/delnote <N>` - Delete a GM note by number.
+- `/quest <text>` - Add an active quest/objective.
+- `/done <N>` - Mark quest N as completed.
+- `/delquest <N>` - Delete quest N.
+- `/gm` - GM dashboard: all campaigns at a glance.
 
 ## Versioning
 
