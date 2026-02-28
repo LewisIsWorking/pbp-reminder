@@ -3865,15 +3865,18 @@ def post_pace_report(config: dict, state: dict, *, now: datetime | None = None, 
         last_week_start = fmt_date(two_weeks_ago)
         last_week_end = fmt_date(week_ago)
 
+        this_week_num = f"W{now.isocalendar()[1]:02d}"
+        last_week_num = f"W{week_ago.isocalendar()[1]:02d}"
+
         message = (
             f"{icon} Weekly pace for {name}:\n"
             f"\n"
-            f"This week ({this_week_start} to {this_week_end}):\n"
+            f"This week {this_week_num} ({this_week_start} to {this_week_end}):\n"
             f"  GM: {gm_this} posts ({gm_this / 7.0:.1f}/day)\n"
             f"  Players: {player_this} posts ({player_this / 7.0:.1f}/day)\n"
             f"  Total: {this_week} posts ({this_avg:.1f}/day)\n"
             f"\n"
-            f"Last week ({last_week_start} to {last_week_end}):\n"
+            f"Last week {last_week_num} ({last_week_start} to {last_week_end}):\n"
             f"  GM: {gm_last} posts ({gm_last / 7.0:.1f}/day)\n"
             f"  Players: {player_last} posts ({player_last / 7.0:.1f}/day)\n"
             f"  Total: {last_week} posts ({last_avg:.1f}/day)\n"
