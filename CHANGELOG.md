@@ -11,6 +11,30 @@ Versioning: [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.8.0] - 2026-02-28
+
+### Added — NPC Tracker & Condition Tracker
+
+#### NPC tracker
+- `/npc <n> — <desc>` (GM): add NPC with name and description
+- `/npcs`: view all tracked NPCs — a living dramatis personae
+- `/delnpc <N>` (GM): remove an NPC
+- Supports em-dash, double-hyphen, or single-hyphen separators
+- Max 40 NPCs per campaign
+
+#### Condition tracker
+- `/condition <target> — <effect> [| duration]` (GM): track buffs/debuffs
+- `/conditions`: view all active conditions with targets and durations
+- `/endcondition <N>` (GM): remove a specific condition
+- `/clearconditions` (GM): wipe all conditions (e.g. after combat ends)
+- Duration is optional free-text (e.g. "1 round", "until end of next turn")
+
+#### Other
+- 2 new daily tips (NPCs, conditions)
+- 11 new tests (258 total)
+
+---
+
 ## [2.7.0] - 2026-02-28
 
 ### Added — DC Lookup, Pins & Loot Tracker

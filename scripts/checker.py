@@ -149,6 +149,11 @@ _HELP_TEXT = (
     "/delpin <N> - Delete a pin\n"
     "/loot <text> - Add item to party loot tracker\n"
     "/delloot <N> - Remove item from loot\n"
+    "/npc <name> — <desc> - Add an NPC to the tracker\n"
+    "/delnpc <N> - Remove an NPC\n"
+    "/condition <target> — <effect> [| duration] - Track a condition\n"
+    "/endcondition <N> - Remove a condition\n"
+    "/clearconditions - Clear all conditions\n"
     "/gm - GM dashboard: all campaigns at a glance\n"
     "\n"
     "Everyone:\n"
@@ -165,6 +170,8 @@ _HELP_TEXT = (
     "/quests - View active and completed quests\n"
     "/pins - View bookmarked story moments\n"
     "/lootlist - View party loot\n"
+    "/npcs - View tracked NPCs\n"
+    "/conditions - View active conditions/buffs\n"
     "/dc <level> [difficulty] - PF2e DC lookup\n"
     "/activity - Posting patterns: busiest hours and days\n"
     "/profile @player - Cross-campaign stats for a player\n"
@@ -784,6 +791,43 @@ def _build_lootlist(pid: str, campaign_name: str, state: dict) -> str:
     return "\n".join(lines)
 
 
+_MAX_NPCS_PER_CAMPAIGN = 40
+
+
+def _build_npcs(pid: str, campaign_name: str, state: dict) -> str:
+    """Build the NPC list for /npcs command."""
+    npcs = state.get("npcs", {}).get(pid, [])
+    if not npcs:
+        return f"No NPCs tracked for {campaign_name}.\nGMs can add NPCs with /npc <name> — <description>"
+
+    lines = [f"🎭 NPCs — {campaign_name}:", ""]
+    for i, npc in enumerate(npcs, 1):
+        desc = npc.get("desc", "")
+        desc_str = f" — {desc}" if desc else ""
+        lines.append(f"  {i}. {npc['name']}{desc_str}")
+    lines.append("")
+    lines.append(f"{len(npcs)}/{_MAX_NPCS_PER_CAMPAIGN} NPCs. GMs: /npc <name> — <desc>, /delnpc <N>")
+    return "\n".join(lines)
+
+
+def _build_conditions(pid: str, campaign_name: str, state: dict, config: dict) -> str:
+    """Build the active conditions list for /conditions command."""
+    conds = state.get("conditions", {}).get(pid, [])
+    if not conds:
+        return f"No active conditions in {campaign_name}.\nGMs can add with /condition <target> — <effect>"
+
+    lines = [f"⚡ Active Conditions — {campaign_name}:", ""]
+    for i, c in enumerate(conds, 1):
+        target = c.get("target", "Unknown")
+        effect = c.get("effect", "")
+        duration = c.get("duration", "")
+        dur_str = f" ({duration})" if duration else ""
+        lines.append(f"  {i}. {target}: {effect}{dur_str}")
+    lines.append("")
+    lines.append(f"{len(conds)} active. GMs: /condition, /endcondition <N>, /clearconditions")
+    return "\n".join(lines)
+
+
 def _build_gm_dashboard(config: dict, state: dict) -> str:
     """Build a compact GM overview of all campaigns."""
     now = datetime.now(timezone.utc)
@@ -1291,6 +1335,15 @@ _TIPS = [
     "💡 <b>/lootlist</b> — Track party loot with "
     "<code>/loot +1 striking longsword</code>. View everything with /lootlist. "
     "Remove claimed items with /delloot. Never forget what you picked up!",
+
+    "💡 <b>/npcs</b> — Can't remember who that merchant was? "
+    "GMs can add NPCs with <code>/npc Gorund — Dwarven blacksmith, owes party a favour</code>. "
+    "View them all with /npcs. A living dramatis personae for your campaign.",
+
+    "💡 <b>/conditions</b> — Track buffs, debuffs, and persistent effects. "
+    "<code>/condition Cardigan — Frightened 2 | until end of next turn</code>. "
+    "View active conditions with /conditions, end them with /endcondition, "
+    "or /clearconditions to wipe the slate.",
 ]
 
 
@@ -2027,6 +2080,120 @@ def process_updates(updates: list, config: dict, state: dict) -> int:
             except (ValueError, TypeError):
                 tg.send_message(group_id, thread_id,
                                 "Usage: /delloot <number>\ne.g. /delloot 3")
+
+        # ---- /npc command (GM only) ----
+        if text.startswith("/npc") and not text.startswith("/npcs") and user_id in gm_ids:
+            raw_args = parsed["raw_text"][4:].strip()
+            if not raw_args:
+                tg.send_message(group_id, thread_id,
+                                "Usage: /npc <name> — <description>\n"
+                                "e.g. /npc Gorund — Dwarven blacksmith, owes party a favour")
+            else:
+                npcs = state.setdefault("npcs", {}).setdefault(pid, [])
+                if len(npcs) >= _MAX_NPCS_PER_CAMPAIGN:
+                    tg.send_message(group_id, thread_id,
+                                    f"Maximum {_MAX_NPCS_PER_CAMPAIGN} NPCs. Use /delnpc <N> to remove.")
+                else:
+                    # Split on em-dash or double-hyphen
+                    if " — " in raw_args:
+                        name, desc = raw_args.split(" — ", 1)
+                    elif " -- " in raw_args:
+                        name, desc = raw_args.split(" -- ", 1)
+                    elif " - " in raw_args:
+                        name, desc = raw_args.split(" - ", 1)
+                    else:
+                        name, desc = raw_args, ""
+                    npcs.append({"name": name.strip(), "desc": desc.strip(), "added_at": now_iso})
+                    tg.send_message(group_id, thread_id,
+                                    f"🎭 NPC #{len(npcs)}: {name.strip()}")
+                    print(f"NPC added to {campaign_name}: {name.strip()[:50]}")
+
+        # ---- /npcs command (everyone) ----
+        if text == "/npcs":
+            npcs_report = _build_npcs(pid, campaign_name, state)
+            tg.send_message(group_id, thread_id, npcs_report)
+
+        # ---- /delnpc command (GM only) ----
+        if text.startswith("/delnpc") and user_id in gm_ids:
+            num_str = parsed["raw_text"][7:].strip()
+            npcs = state.get("npcs", {}).get(pid, [])
+            try:
+                idx = int(num_str) - 1
+                if 0 <= idx < len(npcs):
+                    removed = npcs.pop(idx)
+                    tg.send_message(group_id, thread_id,
+                                    f"🗑️ Removed NPC #{idx + 1}: {removed['name']}")
+                else:
+                    tg.send_message(group_id, thread_id,
+                                    f"NPC #{num_str} not found. Use /npcs to see the list.")
+            except (ValueError, TypeError):
+                tg.send_message(group_id, thread_id,
+                                "Usage: /delnpc <number>\ne.g. /delnpc 3")
+
+        # ---- /condition command (GM only) ----
+        if text.startswith("/condition") and not text.startswith("/conditions") and user_id in gm_ids:
+            raw_args = parsed["raw_text"][10:].strip()
+            if not raw_args:
+                tg.send_message(group_id, thread_id,
+                                "Usage: /condition <target> — <effect> [| duration]\n"
+                                "e.g. /condition Cardigan — Frightened 2 | until end of next turn\n"
+                                "e.g. /condition All — Inspired +1")
+            else:
+                # Parse: target — effect [| duration]
+                if " — " in raw_args:
+                    target, rest = raw_args.split(" — ", 1)
+                elif " -- " in raw_args:
+                    target, rest = raw_args.split(" -- ", 1)
+                elif " - " in raw_args:
+                    target, rest = raw_args.split(" - ", 1)
+                else:
+                    target, rest = raw_args, ""
+
+                if "|" in rest:
+                    effect, duration = rest.split("|", 1)
+                else:
+                    effect, duration = rest, ""
+
+                conds = state.setdefault("conditions", {}).setdefault(pid, [])
+                conds.append({
+                    "target": target.strip(),
+                    "effect": effect.strip(),
+                    "duration": duration.strip(),
+                    "added_at": now_iso,
+                })
+                tg.send_message(group_id, thread_id,
+                                f"⚡ Condition on {target.strip()}: {effect.strip()}")
+                print(f"Condition in {campaign_name}: {target.strip()} — {effect.strip()[:50]}")
+
+        # ---- /conditions command (everyone) ----
+        if text == "/conditions":
+            conds_report = _build_conditions(pid, campaign_name, state, config)
+            tg.send_message(group_id, thread_id, conds_report)
+
+        # ---- /endcondition command (GM only) ----
+        if text.startswith("/endcondition") and user_id in gm_ids:
+            num_str = parsed["raw_text"][13:].strip()
+            conds = state.get("conditions", {}).get(pid, [])
+            try:
+                idx = int(num_str) - 1
+                if 0 <= idx < len(conds):
+                    removed = conds.pop(idx)
+                    tg.send_message(group_id, thread_id,
+                                    f"✅ Ended: {removed['target']} — {removed['effect']}")
+                else:
+                    tg.send_message(group_id, thread_id,
+                                    f"Condition #{num_str} not found. Use /conditions to see list.")
+            except (ValueError, TypeError):
+                tg.send_message(group_id, thread_id,
+                                "Usage: /endcondition <number>\ne.g. /endcondition 2")
+
+        # ---- /clearconditions command (GM only) ----
+        if text == "/clearconditions" and user_id in gm_ids:
+            old = state.get("conditions", {}).get(pid, [])
+            count = len(old)
+            state.setdefault("conditions", {})[pid] = []
+            tg.send_message(group_id, thread_id,
+                            f"✅ Cleared {count} condition{'s' if count != 1 else ''} from {campaign_name}.")
 
         # ---- /dc command (everyone) ----
         if text.startswith("/dc"):

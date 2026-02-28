@@ -3699,6 +3699,173 @@ def test_dc_out_of_range():
 
 
 # ------------------------------------------------------------------ #
+#  NPC tracker tests
+# ------------------------------------------------------------------ #
+def test_npc_add():
+    """/npc adds an NPC with name and description."""
+    _reset()
+    config = _make_config()
+    state = _make_state()
+
+    updates = [_make_msg(1, 100, "/npc Gorund — Dwarven blacksmith", user_id=999, first_name="GM")]
+    checker.process_updates(updates, config, state)
+
+    npcs = state.get("npcs", {}).get("100", [])
+    assert len(npcs) == 1
+    assert npcs[0]["name"] == "Gorund"
+    assert npcs[0]["desc"] == "Dwarven blacksmith"
+    assert "🎭" in _sent_messages[-1]["text"]
+
+
+def test_npc_name_only():
+    """/npc with just a name (no description)."""
+    _reset()
+    config = _make_config()
+    state = _make_state()
+
+    updates = [_make_msg(1, 100, "/npc Mysterious Stranger", user_id=999, first_name="GM")]
+    checker.process_updates(updates, config, state)
+
+    npcs = state.get("npcs", {}).get("100", [])
+    assert len(npcs) == 1
+    assert npcs[0]["name"] == "Mysterious Stranger"
+    assert npcs[0]["desc"] == ""
+
+
+def test_npcs_list():
+    """/npcs shows all NPCs."""
+    state = {"npcs": {"100": [
+        {"name": "Gorund", "desc": "Blacksmith", "added_at": "2026-02-27T10:00:00+00:00"},
+        {"name": "Elara", "desc": "Temple priestess", "added_at": "2026-02-28T10:00:00+00:00"},
+    ]}}
+    result = checker._build_npcs("100", "TestCampaign", state)
+    assert "Gorund" in result
+    assert "Elara" in result
+    assert "2/40 NPCs" in result
+
+
+def test_delnpc():
+    """/delnpc removes an NPC."""
+    _reset()
+    config = _make_config()
+    state = _make_state()
+    state["npcs"] = {"100": [
+        {"name": "Gorund", "desc": "Blacksmith", "added_at": "2026-02-27T10:00:00+00:00"},
+    ]}
+
+    updates = [_make_msg(1, 100, "/delnpc 1", user_id=999, first_name="GM")]
+    checker.process_updates(updates, config, state)
+
+    assert len(state["npcs"]["100"]) == 0
+
+
+def test_npc_non_gm():
+    """/npc from non-GM is ignored."""
+    _reset()
+    config = _make_config()
+    state = _make_state()
+
+    updates = [_make_msg(1, 100, "/npc Bad Guy", user_id=42, first_name="Player")]
+    checker.process_updates(updates, config, state)
+
+    assert len(state.get("npcs", {}).get("100", [])) == 0
+
+
+# ------------------------------------------------------------------ #
+#  Condition tracker tests
+# ------------------------------------------------------------------ #
+def test_condition_add():
+    """/condition adds a condition with target and effect."""
+    _reset()
+    config = _make_config()
+    state = _make_state()
+
+    updates = [_make_msg(1, 100, "/condition Cardigan — Frightened 2 | end of next turn", user_id=999, first_name="GM")]
+    checker.process_updates(updates, config, state)
+
+    conds = state.get("conditions", {}).get("100", [])
+    assert len(conds) == 1
+    assert conds[0]["target"] == "Cardigan"
+    assert conds[0]["effect"] == "Frightened 2"
+    assert conds[0]["duration"] == "end of next turn"
+    assert "⚡" in _sent_messages[-1]["text"]
+
+
+def test_condition_no_duration():
+    """/condition without duration."""
+    _reset()
+    config = _make_config()
+    state = _make_state()
+
+    updates = [_make_msg(1, 100, "/condition All — Inspired +1", user_id=999, first_name="GM")]
+    checker.process_updates(updates, config, state)
+
+    conds = state.get("conditions", {}).get("100", [])
+    assert len(conds) == 1
+    assert conds[0]["duration"] == ""
+
+
+def test_conditions_list():
+    """/conditions shows all active conditions."""
+    state = {"conditions": {"100": [
+        {"target": "Cardigan", "effect": "Frightened 2", "duration": "1 round", "added_at": "2026-02-27T10:00:00+00:00"},
+        {"target": "Rax", "effect": "Flat-footed", "duration": "", "added_at": "2026-02-27T10:00:00+00:00"},
+    ]}}
+    config = _make_config()
+    result = checker._build_conditions("100", "TestCampaign", state, config)
+    assert "Cardigan" in result
+    assert "Frightened 2" in result
+    assert "(1 round)" in result
+    assert "Rax" in result
+    assert "2 active" in result
+
+
+def test_endcondition():
+    """/endcondition removes a condition."""
+    _reset()
+    config = _make_config()
+    state = _make_state()
+    state["conditions"] = {"100": [
+        {"target": "Cardigan", "effect": "Frightened 2", "duration": "", "added_at": "2026-02-27T10:00:00+00:00"},
+    ]}
+
+    updates = [_make_msg(1, 100, "/endcondition 1", user_id=999, first_name="GM")]
+    checker.process_updates(updates, config, state)
+
+    assert len(state["conditions"]["100"]) == 0
+    assert "✅ Ended" in _sent_messages[-1]["text"]
+
+
+def test_clearconditions():
+    """/clearconditions removes all conditions."""
+    _reset()
+    config = _make_config()
+    state = _make_state()
+    state["conditions"] = {"100": [
+        {"target": "A", "effect": "X", "duration": "", "added_at": ""},
+        {"target": "B", "effect": "Y", "duration": "", "added_at": ""},
+    ]}
+
+    updates = [_make_msg(1, 100, "/clearconditions", user_id=999, first_name="GM")]
+    checker.process_updates(updates, config, state)
+
+    assert len(state["conditions"]["100"]) == 0
+    assert "Cleared 2" in _sent_messages[-1]["text"]
+
+
+def test_condition_non_gm():
+    """/condition from non-GM is ignored."""
+    _reset()
+    config = _make_config()
+    state = _make_state()
+
+    updates = [_make_msg(1, 100, "/condition Me — Invincible", user_id=42, first_name="Player")]
+    checker.process_updates(updates, config, state)
+
+    assert len(state.get("conditions", {}).get("100", [])) == 0
+
+
+# ------------------------------------------------------------------ #
 #  Runner
 # ------------------------------------------------------------------ #
 def _run_all():

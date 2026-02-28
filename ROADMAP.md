@@ -223,6 +223,17 @@ PF2e DC lookup by level and difficulty. Proficiency DCs. Short aliases.
 
 ---
 
+## v2.8.0 — NPC & Condition Trackers
+
+### ✅ NPC tracker
+`/npc`, `/npcs`, `/delnpc`. Track named NPCs with descriptions.
+
+### ✅ Condition tracker
+`/condition`, `/conditions`, `/endcondition`, `/clearconditions`.
+Track buffs, debuffs, and persistent effects during combat and RP.
+
+---
+
 ## Future Ideas (unscheduled)
 
 ### 💡 AI summaries (revisited)

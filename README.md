@@ -263,6 +263,8 @@ The bot responds to these commands in any monitored PBP topic:
 - `/quests` - View active and completed quest objectives.
 - `/pins` - View bookmarked story moments and clues.
 - `/lootlist` - View party loot.
+- `/npcs` - View tracked NPCs.
+- `/conditions` - View active conditions/buffs/debuffs.
 - `/dc <level> [difficulty]` - PF2e DC lookup (e.g. `/dc 5 hard`).
 
 ### GM commands
@@ -284,6 +286,11 @@ The bot responds to these commands in any monitored PBP topic:
 - `/delpin <N>` - Delete a pin.
 - `/loot <item>` - Add item to party loot tracker.
 - `/delloot <N>` - Remove item from loot.
+- `/npc <n> — <desc>` - Add NPC to tracker.
+- `/delnpc <N>` - Remove NPC.
+- `/condition <target> — <effect> [| duration]` - Track a condition.
+- `/endcondition <N>` - Remove a condition.
+- `/clearconditions` - Clear all conditions.
 - `/gm` - GM dashboard: all campaigns at a glance.
 
 ## Versioning
