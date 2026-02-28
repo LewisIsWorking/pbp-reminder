@@ -2236,7 +2236,12 @@ def _sanitize_dirname(name: str) -> str:
 
 
 def _format_log_entry(parsed: dict, gm_ids: set, char_name: str | None = None) -> str:
-    """Format a single message as a markdown log line."""
+    """Format a single message as a markdown log line.
+
+    Improvements:
+    - PBP quote formatting (> and >> -) rendered as blockquotes
+    - Mechanical content (rolls, DCs) styled in italics
+    """
     ts = parsed["msg_time_iso"][:19].replace("T", " ")  # 2026-02-26 14:30:05
     name = parsed["user_name"]
     last = parsed.get("user_last_name", "")
@@ -2261,13 +2266,59 @@ def _format_log_entry(parsed: dict, gm_ids: set, char_name: str | None = None) -
         else:
             parts.append(f"*[{media}]*")
     if raw:
-        parts.append(raw)
+        parts.append(_format_transcript_content(raw))
     elif caption:
-        parts.append(caption)
+        parts.append(_format_transcript_content(caption))
 
     content = " ".join(parts) if parts else "*[empty message]*"
 
     return f"**{name}**{char_tag}{role_tag} ({ts}):\n{content}\n"
+
+
+import re as _re
+
+# Patterns that indicate mechanical/dice content (case-insensitive)
+_MECHANICAL_PATTERNS = _re.compile(
+    r"^("
+    r"DC \d+|"                          # DC 14
+    r"Rank \d+|"                         # Rank 4
+    r"\d+d\d+[\+\-\d]*\s*=|"           # 2d6+4 =
+    r".*(?:to hit|to strike)\s*=|"      # 22 to hit =
+    r".*(?:critical (?:hit|miss|success|failure))|"  # Critical Hit
+    r".*(?:(?:nat|natural) (?:1|20))|"  # nat 20
+    r"Flat check|"                       # Flat check
+    r"Saving throw|"                     # Saving throw
+    r".*rolled? (?:a )?\d+|"            # rolled a 17
+    r"@\w+\s*$"                         # Just a @mention (pinging for turn)
+    r")",
+    _re.IGNORECASE
+)
+
+
+def _format_transcript_content(text: str) -> str:
+    """Format message content with blockquotes and mechanical styling."""
+    lines = text.split("\n")
+    out = []
+    for line in lines:
+        stripped = line.strip()
+
+        # PBP quote formatting: >> - becomes nested blockquote
+        if stripped.startswith(">> -") or stripped.startswith(">>-"):
+            content = stripped.lstrip(">").lstrip(" -").strip()
+            out.append(f">> {content}")
+        elif stripped.startswith(">>"):
+            content = stripped[2:].lstrip(" -").strip()
+            out.append(f">> {content}")
+        elif stripped.startswith(">"):
+            content = stripped[1:].lstrip()
+            out.append(f"> {content}")
+        # Mechanical line — style in italics
+        elif _MECHANICAL_PATTERNS.match(stripped):
+            out.append(f"*{stripped}*")
+        else:
+            out.append(line)
+
+    return "\n".join(out)
 
 
 def _append_to_transcript(parsed: dict, gm_ids: set, config: dict | None = None) -> None:
@@ -2275,7 +2326,11 @@ def _append_to_transcript(parsed: dict, gm_ids: set, config: dict | None = None)
 
     Files: data/pbp_logs/{CampaignName}/{YYYY-MM}.md
     Each file has a header on first creation, then entries appended.
-    Week separators (## Week N) are inserted when the ISO week changes.
+
+    Structural markers inserted automatically:
+    - ## Week N (Mon DD–Sun DD) — when ISO week changes
+    - ### 📅 Day, Mon DD — when date changes within a week
+    - *— Xh of silence —* — when 12+ hour gap between messages
     """
     campaign_name = parsed["campaign_name"]
     dir_name = _sanitize_dirname(campaign_name)
@@ -2292,54 +2347,224 @@ def _append_to_transcript(parsed: dict, gm_ids: set, config: dict | None = None)
     if config:
         char_name = helpers.character_name(config, parsed["pid"], parsed["user_id"])
 
-    # Determine ISO week of this message
+    # Parse message datetime
     msg_dt = datetime.fromisoformat(parsed["msg_time_iso"])
     msg_iso_year, msg_iso_week, _ = msg_dt.isocalendar()
 
     # Create header on first write
     is_new = not log_file.exists()
 
-    # Check if we need a week separator
+    # Cache keys for this campaign+month
+    cache_prefix = f"transcript:{dir_name}:{month_str}"
+    week_key = f"{cache_prefix}:week"
+    date_key = f"{cache_prefix}:date"
+    time_key = f"{cache_prefix}:time"
+
+    # Check if we need structural markers
     needs_week_header = False
+    needs_day_header = False
+    silence_hours = 0.0
+
     if is_new:
         needs_week_header = True
+        needs_day_header = True
     else:
-        # Read last week marker from state or scan file tail
-        last_week_key = f"transcript_last_week:{dir_name}:{month_str}"
-        last_week = _transcript_week_cache.get(last_week_key)
+        # --- Week check ---
+        last_week = _transcript_cache.get(week_key)
         if last_week is None:
-            # Scan file for last week marker
             try:
                 content = log_file.read_text(encoding="utf-8")
-                import re
-                week_matches = re.findall(r"## Week (\d+)", content)
+                week_matches = _re.findall(r"## Week (\d+)", content)
                 last_week = int(week_matches[-1]) if week_matches else 0
             except Exception:
                 last_week = 0
         if msg_iso_week != last_week:
             needs_week_header = True
+            needs_day_header = True  # New week always gets a day header too
+
+        # --- Day check ---
+        last_date = _transcript_cache.get(date_key)
+        if last_date is None:
+            try:
+                if not is_new:
+                    content = log_file.read_text(encoding="utf-8") if "content" not in dir() else content
+                    date_matches = _re.findall(
+                        r"\((\d{4}-\d{2}-\d{2}) \d{2}:\d{2}:\d{2}\):", content
+                    )
+                    last_date = date_matches[-1] if date_matches else ""
+            except Exception:
+                last_date = ""
+        if msg_date != last_date:
+            needs_day_header = True
+
+        # --- Silence gap check ---
+        last_time_str = _transcript_cache.get(time_key)
+        if last_time_str:
+            try:
+                last_time = datetime.fromisoformat(last_time_str)
+                silence_hours = (msg_dt - last_time).total_seconds() / 3600.0
+            except (TypeError, ValueError):
+                pass
+
+    _SILENCE_THRESHOLD_HOURS = 12.0
 
     with open(log_file, "a", encoding="utf-8") as f:
         if is_new:
             f.write(f"# {campaign_name} — {month_str}\n\n")
             f.write("*PBP transcript archived by PathWarsNudge bot.*\n\n---\n\n")
+            # Finalize previous month's transcript with stats footer
+            _finalize_previous_month(campaign_dir, month_str, campaign_name)
 
         if needs_week_header:
-            # Calculate week date range (Mon–Sun)
             from datetime import date as _date
             week_monday = _date.fromisocalendar(msg_iso_year, msg_iso_week, 1)
             week_sunday = _date.fromisocalendar(msg_iso_year, msg_iso_week, 7)
             mon_str = week_monday.strftime("%b %d")
             sun_str = week_sunday.strftime("%b %d")
             f.write(f"## Week {msg_iso_week} ({mon_str}–{sun_str})\n\n")
-            _transcript_week_cache[f"transcript_last_week:{dir_name}:{month_str}"] = msg_iso_week
+
+        if needs_day_header and not needs_week_header:
+            # Day header within the same week (week header already implies the day)
+            day_label = msg_dt.strftime("%A, %b %d")
+            f.write(f"### 📅 {day_label}\n\n")
+        elif needs_day_header and needs_week_header:
+            # First day of a new week — add day header after week header
+            day_label = msg_dt.strftime("%A, %b %d")
+            f.write(f"### 📅 {day_label}\n\n")
+
+        # Silence gap marker (only if NOT already showing a day/week header)
+        if (silence_hours >= _SILENCE_THRESHOLD_HOURS
+                and not needs_day_header and not needs_week_header):
+            if silence_hours >= 48:
+                gap_str = f"{silence_hours / 24:.1f} days"
+            else:
+                gap_str = f"{silence_hours:.0f}h"
+            f.write(f"*— {gap_str} of silence —*\n\n")
 
         entry = _format_log_entry(parsed, gm_ids, char_name)
         f.write(entry + "\n")
 
+    # Update caches
+    _transcript_cache[week_key] = msg_iso_week
+    _transcript_cache[date_key] = msg_date
+    _transcript_cache[time_key] = parsed["msg_time_iso"]
 
-# In-memory cache to avoid re-scanning files for week markers
-_transcript_week_cache: dict[str, int] = {}
+
+# In-memory cache for transcript structural markers (week, date, timestamp)
+_transcript_cache: dict[str, int | str] = {}
+
+
+def _finalize_previous_month(campaign_dir: Path, current_month: str,
+                             campaign_name: str) -> None:
+    """Append a stats footer to the previous month's transcript when a new month starts.
+
+    Only runs once per month transition (idempotent — checks for existing footer).
+    """
+    # Parse current month to find previous
+    year, month = int(current_month[:4]), int(current_month[5:7])
+    if month == 1:
+        prev_month_str = f"{year - 1}-12"
+    else:
+        prev_month_str = f"{year}-{month - 1:02d}"
+
+    prev_file = campaign_dir / f"{prev_month_str}.md"
+    if not prev_file.exists():
+        return
+
+    # Check if already finalized
+    try:
+        content = prev_file.read_text(encoding="utf-8")
+        if "## 📊 Month Summary" in content:
+            return  # Already finalized
+    except Exception:
+        return
+
+    # Count stats from the file
+    total_messages = 0
+    gm_messages = 0
+    player_messages = 0
+    unique_posters = set()
+    word_count = 0
+    active_dates = set()
+    poster_counts: dict[str, int] = {}
+
+    for line in content.split("\n"):
+        if not line.startswith("**"):
+            continue
+        total_messages += 1
+
+        # Extract name and role
+        # Format: **Name** [GM] (2026-02-28 14:30:05):
+        # or:     **Name** (CharName) (2026-02-28 14:30:05):
+        name_match = _re.match(r"\*\*(.+?)\*\*(?:\s*\(.*?\))?\s*(?:\[GM\])?\s*\((\d{4}-\d{2}-\d{2})", line)
+        if name_match:
+            poster_name = name_match.group(1)
+            date_str = name_match.group(2)
+            active_dates.add(date_str)
+            unique_posters.add(poster_name)
+            poster_counts[poster_name] = poster_counts.get(poster_name, 0) + 1
+
+            if "[GM]" in line:
+                gm_messages += 1
+            else:
+                player_messages += 1
+
+        # Count words in the NEXT lines (content) — approximate from same line after :
+        colon_idx = line.find("):\n")
+        if colon_idx == -1:
+            colon_idx = line.find("):")
+
+    # Word count from non-header, non-structural lines
+    in_entry = False
+    for line in content.split("\n"):
+        if line.startswith("**"):
+            in_entry = True
+            # Count words after the timestamp: part
+            colon_pos = line.rfind("):")
+            if colon_pos != -1:
+                text_after = line[colon_pos + 2:].strip()
+                word_count += len(text_after.split()) if text_after else 0
+            continue
+        if line.startswith("#") or line.startswith("*PBP transcript") or line.startswith("---"):
+            in_entry = False
+            continue
+        if in_entry and line.strip():
+            word_count += len(line.split())
+
+    if total_messages == 0:
+        return
+
+    # Top posters (top 5)
+    sorted_posters = sorted(poster_counts.items(), key=lambda x: x[1], reverse=True)
+
+    # Build footer
+    footer_lines = [
+        "",
+        "---",
+        "",
+        "## 📊 Month Summary",
+        "",
+        f"- **Total messages:** {total_messages} ({gm_messages} GM, {player_messages} player)",
+        f"- **Unique posters:** {len(unique_posters)}",
+        f"- **Active days:** {len(active_dates)}/{_days_in_month(prev_month_str)}",
+        f"- **Words written:** ~{word_count:,}",
+        "",
+        "**Most active:**",
+    ]
+    for name, count in sorted_posters[:5]:
+        footer_lines.append(f"- {name}: {count} messages")
+
+    footer_lines.append("")
+
+    with open(prev_file, "a", encoding="utf-8") as f:
+        f.write("\n".join(footer_lines))
+
+
+def _days_in_month(month_str: str) -> int:
+    """Return number of days in a YYYY-MM month."""
+    import calendar
+    year, month = int(month_str[:4]), int(month_str[5:7])
+    return calendar.monthrange(year, month)[1]
 
 
 def update_transcript_index(config: dict) -> None:

@@ -11,6 +11,24 @@ Versioning: [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.1.1] - 2026-02-28
+
+### Improved — Transcript Readability
+
+- **Day separators**: `### 📅 Wednesday, Feb 26` inserted when the date changes within a week
+- **Silence gap markers**: `*— 18h of silence —*` shown for 12+ hour gaps (48h+ shown in days)
+- **Quote formatting**: PBP `>` and `>> -` syntax rendered as proper markdown blockquotes
+- **Mechanical content styling**: Dice rolls, DCs, and hit results styled in italics
+- **Monthly stats footer**: Completed months get a `📊 Month Summary` with message counts, active days, word count, and most active posters
+- **Improved caching**: Unified `_transcript_cache` tracks week, date, and timestamp per campaign/month
+
+### Tests
+
+- 6 new transcript tests (day headers, silence gaps, multi-day silence, quote formatting, mechanical styling, monthly stats)
+- **341 total**
+
+---
+
 ## [3.1.0] - 2026-02-28
 
 ### Improved — Reading Experience
