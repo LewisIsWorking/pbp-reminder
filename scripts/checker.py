@@ -600,8 +600,13 @@ def _build_myhistory(pid: str, user_id: str, campaign_name: str,
 
 
 def _build_catchup(pid: str, user_id: str, campaign_name: str,
-                   state: dict, gm_ids: set) -> str:
-    """Build a catch-up summary: what happened since the player last posted."""
+                   state: dict, gm_ids: set, config: dict | None = None) -> str:
+    """Build a catch-up summary: what happened since the player last posted.
+
+    Shows both a count summary AND the actual recent posts so the player
+    can quickly skim what happened without scrolling back.
+    """
+    import re
     now = datetime.now(timezone.utc)
     topic_ts = helpers.get_topic_timestamps(state, pid)
     my_ts = topic_ts.get(user_id, [])
@@ -634,37 +639,123 @@ def _build_catchup(pid: str, user_id: str, campaign_name: str,
             poster_counts[name] = count
             total_since += count
 
+    time_str = _format_elapsed(hours_ago)
+
     if total_since == 0:
-        time_str = f"{hours_ago:.0f}h" if hours_ago < 48 else f"{hours_ago / 24:.0f}d"
         return (f"Nobody has posted in {campaign_name} since your last message "
                 f"({time_str} ago). The floor is yours!")
 
-    # Build summary
-    time_str = f"{hours_ago:.0f}h" if hours_ago < 48 else f"{hours_ago / 24:.0f}d"
-
+    # Build summary header
     lines = [
-        f"Catch-up for {campaign_name}:",
-        f"",
+        f"📬 Catch-up for {campaign_name}:",
         f"Since your last post ({time_str} ago):",
         f"",
     ]
 
-    # Sort by count descending
+    # Poster breakdown
     for name, count in sorted(poster_counts.items(), key=lambda x: -x[1]):
         lines.append(f"  {name}: {posts_str(count)}")
+    lines.append(f"  Total: {posts_str(total_since)}")
 
-    lines.append(f"")
-    lines.append(f"Total: {posts_str(total_since)} from {len(poster_counts)} people")
+    # Pull actual recent posts from transcript
+    recent_posts = _get_recent_transcript_posts(campaign_name, last_post, max_posts=8)
+    if recent_posts:
+        lines.append("")
+        lines.append("Recent posts:")
+        lines.append("")
+        for ts, poster, content in recent_posts:
+            time_part = ts[11:16]
+            date_part = ts[5:10]
+            # Truncate long content
+            content_flat = content.replace("\n", " ↩ ").strip()
+            if len(content_flat) > 150:
+                cut = content_flat[:147]
+                last_space = cut.rfind(" ")
+                if last_space > 100:
+                    cut = cut[:last_space]
+                content_flat = cut + "…"
+            lines.append(f"<b>[{date_part} {time_part}] {poster}:</b>")
+            lines.append(f"{content_flat}")
+            lines.append("")
+
+        if total_since > len(recent_posts):
+            lines.append(f"(+{total_since - len(recent_posts)} more — use /recap {min(total_since, 25)} for full history)")
 
     # Combat state
     combat = state.get("combat", {}).get(pid, {})
     if combat.get("active"):
         round_num = combat.get("round", "?")
-        phase = combat.get("phase", "?")
-        lines.append(f"")
+        phase = combat.get("current_phase", "?")
         lines.append(f"⚔️ Combat is active (Round {round_num}, {phase})")
+        acted = combat.get("players_acted", {})
+        if isinstance(acted, dict):
+            acted_ids = set(acted.keys())
+        else:
+            acted_ids = set(acted)
+        if user_id in acted_ids:
+            lines.append("✅ You've already acted this round.")
+        else:
+            lines.append("⏳ You haven't acted yet — post your actions!")
 
     return "\n".join(lines)
+
+
+def _get_recent_transcript_posts(campaign_name: str, since: datetime,
+                                  max_posts: int = 8) -> list[tuple[str, str, str]]:
+    """Pull recent transcript entries after a given time.
+
+    Returns list of (timestamp, poster_display, content).
+    """
+    import re
+    dir_name = helpers.campaign_dir_name(campaign_name)
+    campaign_dir = _LOGS_DIR / dir_name
+
+    if not campaign_dir.exists():
+        return []
+
+    month_files = sorted(campaign_dir.glob("*.md"), reverse=True)
+    if not month_files:
+        return []
+
+    since_str = since.strftime("%Y-%m-%d %H:%M:%S")
+
+    entry_re = re.compile(
+        r"^\*\*(.+?)\*\*"
+        r"(?:\s*\(([^)\d][^)]*?)\))?"   # optional char name (NOT starting with digit)
+        r"\s*(\[GM\])?"                   # optional GM tag
+        r"\s*\((\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\):\n"
+        r"(.*?)(?=\n\*\*|\n---|\Z)",
+        re.MULTILINE | re.DOTALL,
+    )
+
+    entries = []
+    for month_file in month_files[:3]:  # Check last 3 months max
+        try:
+            text = month_file.read_text(encoding="utf-8")
+        except OSError:
+            continue
+
+        for m in entry_re.finditer(text):
+            name = m.group(1).strip()
+            char_name = m.group(2).strip() if m.group(2) else None
+            is_gm = bool(m.group(3))
+            timestamp = m.group(4).strip()
+            content = m.group(5).strip()
+
+            if timestamp <= since_str:
+                continue
+
+            if is_gm:
+                poster = f"🎲 {name}"
+            elif char_name:
+                poster = f"{char_name}"
+            else:
+                poster = name
+
+            entries.append((timestamp, poster, content))
+
+    entries.sort(key=lambda x: x[0])
+    return entries[-max_posts:]
 
 
 def _build_overview(config: dict, state: dict) -> str:
@@ -1328,10 +1419,10 @@ def _build_profile(target_name: str, config: dict, state: dict) -> str:
 
 
 def _build_recap(pid: str, campaign_name: str, config: dict, count: int = 10) -> str:
-    """Build a compact recap of the last N transcript entries.
+    """Build a rich recap of the last N transcript entries.
 
-    Reads from the campaign's pbp_logs directory, pulling from the
-    most recent month file(s) until we have enough entries.
+    Shows character names, GM tags, scene boundaries, and time gaps
+    between posts to give a real sense of the conversation flow.
     """
     import re
     count = max(1, min(count, 25))  # clamp 1-25
@@ -1347,16 +1438,24 @@ def _build_recap(pid: str, campaign_name: str, config: dict, count: int = 10) ->
     if not month_files:
         return f"No transcript entries for {campaign_name}."
 
-    # Parse entries from newest files until we have enough
-    entries = []
-    # Entry pattern: **Name** (optional char/GM) (timestamp):\ncontent\n
+    # Parse entries and scene markers from newest files
+    entries = []  # (timestamp_str, name, char_name, is_gm, content, kind)
+    # Entry: **Name** (optional char) [optional GM] (timestamp):\ncontent
+    # Char names never start with a digit; timestamps always do.
     entry_re = re.compile(
-        r"^\*\*(.+?)\*\*(?:\s*\(.+?\))?\s*(?:\[GM\])?\s*\((\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\):\n(.*?)(?=\n\*\*|\n---|\Z)",
+        r"^\*\*(.+?)\*\*"
+        r"(?:\s*\(([^)\d][^)]*?)\))?"   # optional char name (must NOT start with digit)
+        r"\s*(\[GM\])?"                   # optional GM tag
+        r"\s*\((\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\):\n"
+        r"(.*?)(?=\n\*\*|\n---|\Z)",
         re.MULTILINE | re.DOTALL,
+    )
+    scene_re = re.compile(
+        r"### 🎭 Scene: (.+?)\n\*\((\d{4}-\d{2}-\d{2} \d{2}:\d{2})\)\*",
     )
 
     for month_file in month_files:
-        if len(entries) >= count:
+        if len(entries) >= count + 10:  # grab extra for scene context
             break
         try:
             text = month_file.read_text(encoding="utf-8")
@@ -1364,30 +1463,95 @@ def _build_recap(pid: str, campaign_name: str, config: dict, count: int = 10) ->
             continue
 
         file_entries = []
+
+        # Find scene markers
+        for m in scene_re.finditer(text):
+            scene_name = m.group(1).strip()
+            ts = m.group(2).strip() + ":00"
+            file_entries.append((ts, "", "", False, scene_name, "scene"))
+
+        # Find message entries
         for m in entry_re.finditer(text):
             name = m.group(1).strip()
-            timestamp = m.group(2).strip()
-            content = m.group(3).strip()
-            # Truncate very long content
-            if len(content) > 120:
-                content = content[:117] + "..."
-            file_entries.append((timestamp, name, content))
+            char_name = m.group(2).strip() if m.group(2) else None
+            is_gm = bool(m.group(3))
+            timestamp = m.group(4).strip()
+            content = m.group(5).strip()
+            file_entries.append((timestamp, name, char_name, is_gm, content, "msg"))
 
-        # Add from this file (they're in chronological order within the file)
+        # Sort by timestamp within file
+        file_entries.sort(key=lambda x: x[0])
         entries = file_entries + entries
-        if len(entries) > count:
-            entries = entries[-count:]
 
     if not entries:
         return f"No transcript entries found for {campaign_name}."
 
-    lines = [f"📜 Last {len(entries)} messages in {campaign_name}:", ""]
-    for ts, name, content in entries:
-        # Compact: just time (HH:MM), name, snippet
+    # Sort all entries chronologically and take last N
+    entries.sort(key=lambda x: x[0])
+    # Keep scene markers that fall within our window
+    msg_entries = [e for e in entries if e[5] == "msg"]
+    if not msg_entries:
+        return f"No transcript entries found for {campaign_name}."
+
+    # Find the cutoff timestamp
+    window_entries = msg_entries[-count:]
+    cutoff_ts = window_entries[0][0]
+
+    # Include scene markers that fall within or just before our window
+    display = [e for e in entries if e[0] >= cutoff_ts or (e[5] == "scene" and e[0] >= cutoff_ts[:10])]
+    display.sort(key=lambda x: x[0])
+
+    # Trim to reasonable size
+    display = display[-(count + 5):]
+
+    lines = [f"📜 Recap — {campaign_name} (last {len(window_entries)}):", ""]
+
+    prev_ts = None
+    for ts, name, char_name, is_gm, content, kind in display:
+        # Time gap indicator
+        if prev_ts and kind == "msg":
+            try:
+                prev_dt = datetime.fromisoformat(prev_ts.replace(" ", "T") + "+00:00")
+                curr_dt = datetime.fromisoformat(ts.replace(" ", "T") + "+00:00")
+                gap_hours = (curr_dt - prev_dt).total_seconds() / 3600
+                if gap_hours >= 4:
+                    gap_str = _format_elapsed(gap_hours)
+                    lines.append(f"        ⋯ {gap_str} later ⋯")
+            except (ValueError, TypeError):
+                pass
+
+        if kind == "scene":
+            lines.append(f"━━━ 🎭 {content} ━━━")
+            lines.append("")
+            prev_ts = ts
+            continue
+
+        # Format the poster line
         time_str = ts[11:16]  # HH:MM
-        date_str = ts[:10]     # YYYY-MM-DD
-        content_line = content.replace("\n", " ").strip()
-        lines.append(f"[{date_str} {time_str}] {name}: {content_line}")
+        date_str = ts[5:10]   # MM-DD
+
+        if is_gm:
+            poster = f"🎲 {name}"
+        elif char_name:
+            poster = f"{char_name}"
+        else:
+            poster = name
+
+        # Content: smarter truncation at word boundary
+        content_flat = content.replace("\n", " ↩ ").strip()
+        if len(content_flat) > 200:
+            # Cut at word boundary
+            cut = content_flat[:197]
+            last_space = cut.rfind(" ")
+            if last_space > 150:
+                cut = cut[:last_space]
+            content_flat = cut + "…"
+
+        lines.append(f"<b>[{date_str} {time_str}] {poster}:</b>")
+        lines.append(f"{content_flat}")
+        lines.append("")
+
+        prev_ts = ts
 
     return "\n".join(lines)
 
@@ -1582,8 +1746,9 @@ _TIPS = [
     "💡 <b>/addplayer</b> (GM only) — Want someone on the roster before they've posted? "
     "Type <code>/addplayer @username Player Name</code> to pre-register them.",
 
-    "💡 <b>/catchup</b> — Been away for a while? Type <code>/catchup</code> to see "
-    "how many messages were posted since your last one, and who posted them.",
+    "💡 <b>/catchup</b> — Been away? Type <code>/catchup</code> to see what happened "
+    "since your last post — who posted, how many messages, and a preview of recent posts "
+    "so you can jump back in without scrolling.",
 
     "💡 <b>Message milestones</b> — The bot celebrates every 500th PBP message in each campaign, "
     "and every 5,000th message across all campaigns combined. Keep posting!",
@@ -1623,9 +1788,9 @@ _TIPS = [
     "and the bot will skip you for inactivity warnings and combat pings. "
     "Use /back when you return, or the bot clears it automatically when you post.",
 
-    "💡 <b>/recap</b> — Missed a few days? Type <code>/recap</code> to see the last "
-    "10 transcript entries, or <code>/recap 20</code> for more. A quick way to "
-    "catch up on the story without scrolling.",
+    "💡 <b>/recap</b> — Read back the story! <code>/recap</code> shows the last 10 posts "
+    "with character names, GM tags 🎲, scene markers, and time gaps so you can feel the "
+    "rhythm of the conversation. Use <code>/recap 20</code> for more.",
 
     "💡 <b>/roll</b> — Roll dice right in chat! "
     "<code>/roll 1d20+5 Stealth</code> for a skill check, "
@@ -2375,7 +2540,7 @@ def process_updates(updates: list, config: dict, state: dict) -> int:
 
         # ---- /catchup command ----
         if text == "/catchup":
-            catchup = _build_catchup(pid, user_id, campaign_name, state, gm_ids)
+            catchup = _build_catchup(pid, user_id, campaign_name, state, gm_ids, config)
             tg.send_message(group_id, thread_id, catchup)
 
         # ---- /pause command (GM only) ----

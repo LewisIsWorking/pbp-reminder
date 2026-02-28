@@ -1967,7 +1967,6 @@ def test_catchup_with_messages():
     assert "GM" in result
     assert "Bob" in result
     assert "3 posts" in result  # 1 GM + 2 Bob
-    assert "2 people" in result
 
 
 def test_catchup_with_combat():
@@ -1978,11 +1977,15 @@ def test_catchup_with_combat():
         "42": [(now - timedelta(hours=5)).isoformat()],
         "999": [(now - timedelta(hours=2)).isoformat()],
     }
-    state["combat"]["100"] = {"active": True, "round": 3, "phase": "Players"}
+    state["combat"]["100"] = {
+        "active": True, "round": 3, "current_phase": "players",
+        "players_acted": {},
+    }
 
     result = checker._build_catchup("100", "42", "TestCampaign", state, {"999"})
     assert "combat" in result.lower()
     assert "Round 3" in result
+    assert "haven't acted" in result
 
 
 # ------------------------------------------------------------------ #
@@ -3159,7 +3162,7 @@ def test_recap_basic():
     config = _make_config()
     result = checker._build_recap("100", "TestCampaign", config, 10)
 
-    assert "📜 Last" in result
+    assert "📜 Recap" in result
     assert "Alice" in result
     assert "Bob" in result
     assert "I search the room" in result
@@ -3213,7 +3216,84 @@ def test_recap_with_count():
     config = _make_config()
     result = checker._build_recap("100", "TestCampaign", config, 5)
     # Should show exactly 5 entries
-    assert "Last 5" in result
+    assert "last 5" in result
+
+
+def test_recap_gm_tag():
+    """Recap shows 🎲 for GM posts."""
+    import pathlib
+    campaign_dir = pathlib.Path(checker._LOGS_DIR) / "TestCampaign"
+    campaign_dir.mkdir(parents=True, exist_ok=True)
+    content = (
+        "# TestCampaign — 2026-02\n\n"
+        "*PBP transcript archived by PathWarsNudge bot.*\n\n---\n\n"
+        "**Lewis** [GM] (2026-02-26 10:00:00):\nThe ogre swings at you.\n\n"
+        "**Alice** (Cardigan) (2026-02-26 10:05:00):\nI dodge!\n\n"
+    )
+    (campaign_dir / "2026-02.md").write_text(content, encoding="utf-8")
+
+    config = _make_config()
+    result = checker._build_recap("100", "TestCampaign", config, 10)
+    assert "🎲 Lewis" in result
+    assert "Cardigan" in result
+    # Alice's real name shouldn't show when char name exists
+    # (Cardigan should be the display name)
+
+
+def test_recap_scene_boundary():
+    """Recap shows scene markers."""
+    import pathlib
+    campaign_dir = pathlib.Path(checker._LOGS_DIR) / "TestCampaign"
+    campaign_dir.mkdir(parents=True, exist_ok=True)
+    content = (
+        "# TestCampaign — 2026-02\n\n"
+        "*PBP transcript archived by PathWarsNudge bot.*\n\n---\n\n"
+        "**Alice** (2026-02-26 10:00:00):\nOld scene post.\n\n"
+        "\n---\n\n### 🎭 Scene: The Dark Cave\n*(2026-02-26 10:30)*\n\n---\n\n"
+        "**Alice** (2026-02-26 10:35:00):\nI enter the cave.\n\n"
+    )
+    (campaign_dir / "2026-02.md").write_text(content, encoding="utf-8")
+
+    config = _make_config()
+    result = checker._build_recap("100", "TestCampaign", config, 10)
+    assert "The Dark Cave" in result
+    assert "━━━" in result
+
+
+def test_recap_time_gap():
+    """Recap shows time gaps between posts."""
+    import pathlib
+    campaign_dir = pathlib.Path(checker._LOGS_DIR) / "TestCampaign"
+    campaign_dir.mkdir(parents=True, exist_ok=True)
+    content = (
+        "# TestCampaign — 2026-02\n\n"
+        "*PBP transcript archived by PathWarsNudge bot.*\n\n---\n\n"
+        "**Alice** (2026-02-26 08:00:00):\nMorning post.\n\n"
+        "**Bob** (2026-02-26 20:00:00):\nEvening post.\n\n"
+    )
+    (campaign_dir / "2026-02.md").write_text(content, encoding="utf-8")
+
+    config = _make_config()
+    result = checker._build_recap("100", "TestCampaign", config, 10)
+    assert "later" in result  # "12h later" gap indicator
+
+
+def test_catchup_shows_combat_acted():
+    """Catchup tells player if they've already acted in combat."""
+    _reset()
+    now = datetime.now(timezone.utc)
+    state = _make_state()
+    state["post_timestamps"]["100"] = {
+        "42": [(now - timedelta(hours=5)).isoformat()],
+        "999": [(now - timedelta(hours=2)).isoformat()],
+    }
+    state["combat"]["100"] = {
+        "active": True, "round": 1, "current_phase": "players",
+        "players_acted": {"42": now.isoformat()},
+    }
+
+    result = checker._build_catchup("100", "42", "TestCampaign", state, {"999"})
+    assert "already acted" in result
 
 
 # ------------------------------------------------------------------ #

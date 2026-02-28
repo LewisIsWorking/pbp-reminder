@@ -11,6 +11,31 @@ Versioning: [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.1.0] - 2026-02-28
+
+### Improved — Reading Experience
+
+#### /recap overhaul
+- **Character names**: Shows character names (e.g. `Cardigan`) instead of player names
+- **GM tags**: GM posts marked with 🎲 for instant recognition
+- **Scene boundaries**: Scene markers (━━━ 🎭 The Dark Cave ━━━) appear inline
+- **Time gaps**: Shows `⋯ 12h later ⋯` between posts separated by 4+ hours
+- **Better truncation**: 200 chars at word boundaries instead of hard-cut at 120
+- **Newline markers**: Multi-line posts show ↩ for line breaks
+- **HTML formatting**: Bold poster headers for cleaner visual hierarchy
+
+#### /catchup overhaul
+- **Actual content**: Now shows the last 8 posts since your last message, not just counts
+- **Combat awareness**: Tells you if you've already acted or still need to post
+- **Recap hint**: Suggests `/recap N` when there are more posts than shown
+- **Better time formatting**: Uses "3h", "1d 6h" instead of raw hours
+
+### Other
+- 4 new tests (316 total)
+- Updated daily tips for /recap and /catchup
+
+---
+
 ## [3.0.1] - 2026-02-28
 
 ### Improved
