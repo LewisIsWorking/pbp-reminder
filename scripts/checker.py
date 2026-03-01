@@ -3680,18 +3680,22 @@ def process_updates(updates: list, config: dict, state: dict) -> int:
                 # Welcome back notification
                 char_name = helpers.character_name(config, pid, user_id)
                 char_tag = f" ({char_name})" if char_name else ""
+                uname = parsed.get("username", "")
+                mention = f" @{uname}" if uname else ""
                 tg.send_message(
                     group_id, thread_id,
-                    f"👋 {user_name}{char_tag} is back in {campaign_name}!"
+                    f"👋{mention} {user_name}{char_tag} is back in {campaign_name}!"
                 )
             elif old_warn_level >= 2:
                 # Player was warned for 2+ weeks of inactivity — acknowledge return
                 print(f"Warned player {user_name} returned to {campaign_name} (was week {old_warn_level})")
                 char_name = helpers.character_name(config, pid, user_id)
                 char_tag = f" as {char_name}" if char_name else ""
+                uname = parsed.get("username", "")
+                mention = f" @{uname}" if uname else ""
                 tg.send_message(
                     group_id, thread_id,
-                    f"🎉 {user_name} is back{char_tag}! Good to see you."
+                    f"🎉{mention} {user_name} is back{char_tag}! Good to see you."
                 )
 
         # Log to persistent PBP transcript
