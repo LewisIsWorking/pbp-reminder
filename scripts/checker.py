@@ -4029,9 +4029,10 @@ def player_of_the_week(config: dict, state: dict, *, now: datetime | None = None
         chosen_boons = random.sample(boons, min(3, len(boons)))
         chosen_boons.append(random.choice(helpers.MECHANICAL_BOONS))
 
+        _, iso_week, _ = now.isocalendar()
         base_message = (
             f"Player of the Week for {name}: {mention}!\n"
-            f"({fmt_date(week_ago)} to {fmt_date(now)})\n\n"
+            f"Week {iso_week} ({fmt_date(week_ago)} to {fmt_date(now)})\n\n"
             f"{posts_str(winner['post_count'])} this week with an average "
             f"gap of {avg_gap_str} between posts. The most consistent "
             f"driver of the story."
