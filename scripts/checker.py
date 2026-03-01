@@ -3677,26 +3677,30 @@ def process_updates(updates: list, config: dict, state: dict) -> int:
             if was_removed:
                 removed_data = state["removed_players"].pop(player_key)
                 print(f"Player {user_name} rejoined {campaign_name}")
-                # Welcome back notification
-                char_name = helpers.character_name(config, pid, user_id)
-                char_tag = f" ({char_name})" if char_name else ""
-                uname = parsed.get("username", "") or removed_data.get("username", "")
-                mention = f" @{uname}" if uname else ""
-                tg.send_message(
-                    group_id, thread_id,
-                    f"👋{mention} {user_name}{char_tag} is back in {campaign_name}!"
-                )
+                # Welcome back notification — post to CHAT topic, not PBP
+                chat_tid = maps.to_chat.get(pid)
+                if chat_tid:
+                    char_name = helpers.character_name(config, pid, user_id)
+                    char_tag = f" ({char_name})" if char_name else ""
+                    uname = parsed.get("username", "") or removed_data.get("username", "")
+                    mention = f" @{uname}" if uname else ""
+                    tg.send_message(
+                        group_id, chat_tid,
+                        f"👋{mention} {user_name}{char_tag} is back in {campaign_name}!"
+                    )
             elif old_warn_level >= 2:
                 # Player was warned for 2+ weeks of inactivity — acknowledge return
                 print(f"Warned player {user_name} returned to {campaign_name} (was week {old_warn_level})")
-                char_name = helpers.character_name(config, pid, user_id)
-                char_tag = f" as {char_name}" if char_name else ""
-                uname = parsed.get("username", "") or old_player.get("username", "")
-                mention = f" @{uname}" if uname else ""
-                tg.send_message(
-                    group_id, thread_id,
-                    f"🎉{mention} {user_name} is back{char_tag}! Good to see you."
-                )
+                chat_tid = maps.to_chat.get(pid)
+                if chat_tid:
+                    char_name = helpers.character_name(config, pid, user_id)
+                    char_tag = f" as {char_name}" if char_name else ""
+                    uname = parsed.get("username", "") or old_player.get("username", "")
+                    mention = f" @{uname}" if uname else ""
+                    tg.send_message(
+                        group_id, chat_tid,
+                        f"🎉{mention} {user_name} is back{char_tag}! Good to see you."
+                    )
 
         # Log to persistent PBP transcript
         if not text.startswith("/"):
