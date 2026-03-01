@@ -3951,7 +3951,8 @@ def post_roster_summary(config: dict, state: dict, *, now: datetime | None = Non
             continue
 
         player_count = len(players)
-        footer = f"\nParty size: {player_count}/{helpers.REQUIRED_PLAYERS}."
+        footer = f"\n\n———\n\n📋 {name} Party Size\n"
+        footer += f"Party size: {player_count}/{helpers.REQUIRED_PLAYERS}."
         if player_count < helpers.REQUIRED_PLAYERS:
             needed = helpers.REQUIRED_PLAYERS - player_count
             s = "s" if needed != 1 else ""
