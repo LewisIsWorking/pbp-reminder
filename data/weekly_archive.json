@@ -463,5 +463,351 @@
         "words": 0
       }
     }
+  },
+  "25059:2026-W09": {
+    "campaign": "Doomsday Funtime",
+    "week": "2026-W09",
+    "gm_posts": 14,
+    "player_posts": 7,
+    "total_posts": 21,
+    "player_avg_gap_h": 18.0,
+    "active_players": 5,
+    "total_words": 442,
+    "top_players": {
+      "DragonFox2000 (@DragonFox2000)": 5,
+      "Moss (@Mossssssssssssssssssssssssss)": 2
+    },
+    "player_breakdown": {
+      "Moss (@Mossssssssssssssssssssssssss)": {
+        "posts": 2,
+        "sessions": 2,
+        "avg_gap_h": 89.2,
+        "words": 47
+      },
+      "DragonFox2000 (@DragonFox2000)": {
+        "posts": 5,
+        "sessions": 2,
+        "avg_gap_h": 6.1,
+        "words": 98
+      }
+    }
+  },
+  "66154:2026-W09": {
+    "campaign": "Riddleport",
+    "week": "2026-W09",
+    "gm_posts": 19,
+    "player_posts": 16,
+    "total_posts": 35,
+    "player_avg_gap_h": 8.3,
+    "active_players": 5,
+    "total_words": 1871,
+    "top_players": {
+      "Kaer'maga when? (@Nemesiux)": 5,
+      "Aiden101 (@Aiiden101)": 4,
+      "Ryo Yamakawa (@RyoYamakawa)": 4,
+      "Capricious (@CapriciousC)": 2,
+      "Lunnes (@LuNneS_B)": 1
+    },
+    "player_breakdown": {
+      "Lunnes (@LuNneS_B)": {
+        "posts": 1,
+        "sessions": 1,
+        "avg_gap_h": null,
+        "words": 0
+      },
+      "Capricious (@CapriciousC)": {
+        "posts": 2,
+        "sessions": 1,
+        "avg_gap_h": 8.1,
+        "words": 131
+      },
+      "Aiden101 (@Aiiden101)": {
+        "posts": 4,
+        "sessions": 2,
+        "avg_gap_h": 41.4,
+        "words": 115
+      },
+      "Ryo Yamakawa (@RyoYamakawa)": {
+        "posts": 4,
+        "sessions": 3,
+        "avg_gap_h": 40.6,
+        "words": 113
+      },
+      "Kaer'maga when? (@Nemesiux)": {
+        "posts": 5,
+        "sessions": 3,
+        "avg_gap_h": 27.5,
+        "words": 341
+      }
+    }
+  },
+  "76799:2026-W09": {
+    "campaign": "Magni Watch",
+    "week": "2026-W09",
+    "gm_posts": 6,
+    "player_posts": 8,
+    "total_posts": 14,
+    "player_avg_gap_h": 17.5,
+    "active_players": 4,
+    "total_words": 582,
+    "top_players": {
+      "Cannon McMahon (@ArtyArtillery)": 3,
+      "Ryo Yamakawa (@RyoYamakawa)": 2,
+      "Link (@Linksanelf2006)": 2,
+      "Chase Darkthorne (@ChaseDarkthorne)": 1
+    },
+    "player_breakdown": {
+      "Ryo Yamakawa (@RyoYamakawa)": {
+        "posts": 2,
+        "sessions": 1,
+        "avg_gap_h": 9.4,
+        "words": 0
+      },
+      "Chase Darkthorne (@ChaseDarkthorne)": {
+        "posts": 1,
+        "sessions": 1,
+        "avg_gap_h": null,
+        "words": 0
+      },
+      "Cannon McMahon (@ArtyArtillery)": {
+        "posts": 3,
+        "sessions": 2,
+        "avg_gap_h": 50.3,
+        "words": 128
+      },
+      "Link (@Linksanelf2006)": {
+        "posts": 2,
+        "sessions": 2,
+        "avg_gap_h": 19.4,
+        "words": 0
+      }
+    }
+  },
+  "51357:2026-W09": {
+    "campaign": "Grand Explorers",
+    "week": "2026-W09",
+    "gm_posts": 9,
+    "player_posts": 10,
+    "total_posts": 19,
+    "player_avg_gap_h": 16.4,
+    "active_players": 7,
+    "total_words": 451,
+    "top_players": {
+      "Anthony NegetZ (@MrNegetZ)": 3,
+      "Link (@Linksanelf2006)": 2,
+      "Cannon McMahon (@ArtyArtillery)": 1,
+      "Ryo Yamakawa (@RyoYamakawa)": 1,
+      "Lavender Le'Feygh (@LavenderCatbat)": 1
+    },
+    "player_breakdown": {
+      "Link (@Linksanelf2006)": {
+        "posts": 2,
+        "sessions": 2,
+        "avg_gap_h": 43.6,
+        "words": 0
+      },
+      "Cannon McMahon (@ArtyArtillery)": {
+        "posts": 1,
+        "sessions": 1,
+        "avg_gap_h": null,
+        "words": 23
+      },
+      "Ryo Yamakawa (@RyoYamakawa)": {
+        "posts": 1,
+        "sessions": 1,
+        "avg_gap_h": null,
+        "words": 34
+      },
+      "Anthony NegetZ (@MrNegetZ)": {
+        "posts": 3,
+        "sessions": 3,
+        "avg_gap_h": 62.2,
+        "words": 12
+      },
+      "Lavender Le'Feygh (@LavenderCatbat)": {
+        "posts": 1,
+        "sessions": 1,
+        "avg_gap_h": null,
+        "words": 32
+      },
+      "King (@Kingm108)": {
+        "posts": 1,
+        "sessions": 1,
+        "avg_gap_h": null,
+        "words": 70
+      },
+      "Laetheron (@StorybookRhizome)": {
+        "posts": 1,
+        "sessions": 1,
+        "avg_gap_h": null,
+        "words": 27
+      }
+    }
+  },
+  "40585:2026-W09": {
+    "campaign": "Kibwe",
+    "week": "2026-W09",
+    "gm_posts": 20,
+    "player_posts": 9,
+    "total_posts": 29,
+    "player_avg_gap_h": 20.6,
+    "active_players": 5,
+    "total_words": 777,
+    "top_players": {
+      "Ryo Yamakawa (@RyoYamakawa)": 9
+    },
+    "player_breakdown": {
+      "Ryo Yamakawa (@RyoYamakawa)": {
+        "posts": 9,
+        "sessions": 3,
+        "avg_gap_h": 20.6,
+        "words": 213
+      }
+    }
+  },
+  "52083:2026-W09": {
+    "campaign": "Hopeful End-Times",
+    "week": "2026-W09",
+    "gm_posts": 16,
+    "player_posts": 31,
+    "total_posts": 47,
+    "player_avg_gap_h": 5.2,
+    "active_players": 7,
+    "total_words": 1367,
+    "top_players": {
+      "Anthony NegetZ (@MrNegetZ)": 14,
+      "Ryo Yamakawa (@RyoYamakawa)": 5,
+      "CzarChasm23 \"Lowda Medina\" (@czarchasm23)": 4,
+      "Bruce (@Ravnos1)": 3,
+      "Dima (@Dmitrilak)": 2
+    },
+    "player_breakdown": {
+      "Dima (@Dmitrilak)": {
+        "posts": 2,
+        "sessions": 2,
+        "avg_gap_h": 46.7,
+        "words": 0
+      },
+      "Bruce (@Ravnos1)": {
+        "posts": 3,
+        "sessions": 3,
+        "avg_gap_h": 30.5,
+        "words": 0
+      },
+      "Ryo Yamakawa (@RyoYamakawa)": {
+        "posts": 5,
+        "sessions": 2,
+        "avg_gap_h": 21.2,
+        "words": 74
+      },
+      "Link (@Linksanelf2006)": {
+        "posts": 1,
+        "sessions": 1,
+        "avg_gap_h": null,
+        "words": 0
+      },
+      "CzarChasm23 \"Lowda Medina\" (@czarchasm23)": {
+        "posts": 4,
+        "sessions": 4,
+        "avg_gap_h": 48.2,
+        "words": 216
+      },
+      "Anthony NegetZ (@MrNegetZ)": {
+        "posts": 14,
+        "sessions": 5,
+        "avg_gap_h": 10.2,
+        "words": 135
+      },
+      "Kaer'maga when? (@Nemesiux)": {
+        "posts": 2,
+        "sessions": 1,
+        "avg_gap_h": 2.3,
+        "words": 0
+      }
+    }
+  },
+  "107171:2026-W09": {
+    "campaign": "Metal City",
+    "week": "2026-W09",
+    "gm_posts": 15,
+    "player_posts": 16,
+    "total_posts": 31,
+    "player_avg_gap_h": 9.5,
+    "active_players": 4,
+    "total_words": 852,
+    "top_players": {
+      "Laetheron (@StorybookRhizome)": 8,
+      "Bruce (@Ravnos1)": 3,
+      "Aiden101 (@Aiiden101)": 3,
+      "Link (@Linksanelf2006)": 2
+    },
+    "player_breakdown": {
+      "Link (@Linksanelf2006)": {
+        "posts": 2,
+        "sessions": 2,
+        "avg_gap_h": 43.5,
+        "words": 0
+      },
+      "Bruce (@Ravnos1)": {
+        "posts": 3,
+        "sessions": 3,
+        "avg_gap_h": 55.2,
+        "words": 57
+      },
+      "Laetheron (@StorybookRhizome)": {
+        "posts": 8,
+        "sessions": 3,
+        "avg_gap_h": 16.9,
+        "words": 288
+      },
+      "Aiden101 (@Aiiden101)": {
+        "posts": 3,
+        "sessions": 3,
+        "avg_gap_h": 62.1,
+        "words": 65
+      }
+    }
+  },
+  "107151:2026-W09": {
+    "campaign": "Theria",
+    "week": "2026-W09",
+    "gm_posts": 0,
+    "player_posts": 10,
+    "total_posts": 10,
+    "player_avg_gap_h": 3.2,
+    "active_players": 4,
+    "total_words": 102,
+    "top_players": {
+      "Link (@Linksanelf2006)": 3,
+      "Chase Darkthorne (@ChaseDarkthorne)": 3,
+      "Moss (@Mossssssssssssssssssssssssss)": 2,
+      "Bruce (@Ravnos1)": 2
+    },
+    "player_breakdown": {
+      "Link (@Linksanelf2006)": {
+        "posts": 3,
+        "sessions": 2,
+        "avg_gap_h": 13.6,
+        "words": 45
+      },
+      "Chase Darkthorne (@ChaseDarkthorne)": {
+        "posts": 3,
+        "sessions": 1,
+        "avg_gap_h": 0.7,
+        "words": 0
+      },
+      "Moss (@Mossssssssssssssssssssssssss)": {
+        "posts": 2,
+        "sessions": 2,
+        "avg_gap_h": 21.9,
+        "words": 42
+      },
+      "Bruce (@Ravnos1)": {
+        "posts": 2,
+        "sessions": 2,
+        "avg_gap_h": 27.1,
+        "words": 15
+      }
+    }
   }
 }
